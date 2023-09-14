@@ -1,137 +1,40 @@
-const express =require("express")
-const mongoose =require("mongoose")
-require("dotenv/config")
-const connectionParams={
-    useNewUrlParser: true,
-    useCreateIndex: true,
-    useUnifiedTopology: true 
-}
-
 //models
 const medicine= require("./models/medicine")
 const patient  = require("./models/patients")
-const bill =require("./models/Bill")
-const sale=require("./models/sale")
+const bill = require("./models/Bill")
+const sale = require("./models/sale")
 const MedicalExamination = require("./models/doctor_examination");
 
-const app = express();
-app.use(express.json())
+/*
+$$$$$$$$$$$$$$$$$$$$$$$$ More to IMPLEMENT $$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+************************************************************************
 
-mongoose.connect(process.env.DB_connection_String)
-    .then( () => {
-        console.log('Connected to database ')
-    })
-    .catch( (err) => {
-        console.error(`Error connecting to the database. \n${err}`);
-    })
+(1) Adding Patient (Without any medExms or meds) After adding Patient,
+    need to add more new meds or add more medExms
 
-const Port = 8080
+(2) Increment or Decrement the Quantity of a particular Medicine of particular patient
 
-app.listen(Port,()=>{
-    console.log("Listening to no one "+Port)
-})
+(3) Add or delete some medicines or medExms of a particular patient
 
-//Default Page
-app.get("/",(req,res)=>{
-    res.send("Welcome to Shree Omsheel Ayurvedic Pharmacy and Research Centre")
-    res.end()
-})
+(All the above will be easy to implement if we embed the documents instead of referencing with different collections)
 
-app.get("/patientnumber",async(req,res)=>{
-    try{
-        var query = patient.find();
-        query.count(function(err,count){
-          res.json({data:count})
+(4) Adding Search Functionality acc to locations (can be done with Aggregation Pipeline)
 
-        });
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
+(5) Fetch and search list of patients on given date, month and year
+    ( 
+        From frontend embed the date, month and year parameter into url's query part so we can get it
+        here from req.params.date, req.params.month, req.params.year
+    )
 
-//Get Today Patient List
-app.get("/todaypat",async(Req,res)=>{
-    try{
-        const today=new Date()
-        to=today.toISOString()
-        t=to.split("T")
-        m=t[0]
-        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-      console.log(start,end)
-        // Find documents with a timestamp between the start and end timestamps
-       var  k= await  patient.find({
-          Date: {
-            $gte: start,            
-          }
-        })
-        console.log(k)
-        res.json({success:true,data:k})
-    } 
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
+(6) Search list of patients with group by state or city
+        a) Only State (State)
+        b) State with City ( two state may have same name of city ) (State & City)
 
-})
+************************************************************************
+*/
 
-app.get("/patientlistpdf",async(req,res)=>{
-    try{
-        const proj={name:1,_id:0,address:1,state:1,Date:1,phonenumber:1}
-        const Patients=await patient.find({},proj);
-        res.send(Patients);
-        
-    }
-    catch(err){
-        console.log(err)
-    }
-})
 
-app.get("/patientlistpdf",async(req,res)=>{
-    try{
-        const proj={name:1,_id:0,address:1,state:1,Date:1,phonenumber:1}
-        const Patients=await patient.find({},proj);
-        res.send(Patients);
-        
-    }
-    catch(err){
-        console.log(err)
-    }
-})
 
-//Getting the Patients list
-app.get("/patientlist",async(req,res)=>{
-    try{
-        const Patients= await  (await patient.find()).reverse()
-        res.json({success:true,data:Patients})
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-//medicalExam
-app.get('/medExam',async (req, res) => {
-    try{
-        const results = await MedicalExamination.find();
-        res.status(200).json({
-            status: "Success",
-            data: {
-                medExams: results
-            }
-        });
-    } catch (error){
-        res.status(400).json({
-            status:"Failed",
-            message: error.message
-        })
-    }
-    
-})
-
-app.get("/patientlist/todaypatients",async(req,res)=>{
-    console.log()
-})
 
 //Updating the Bill values
 app.patch('/patientsbillupdate/:id',async(req,res,next)=>{
@@ -149,40 +52,6 @@ app.patch('/patientsbillupdate/:id',async(req,res,next)=>{
 
     }
 })
-
-//Updating the Bill values
-app.patch('/billupdate/:id',async(req,res,next)=>{
-    try{
-        const _id=req.params.id;
-        const updates=req.body;
-        const options={new:true}
-        const result = await bill.findByIdAndUpdate(_id,updates,options)
-        result.save()
-        res.send(result);
-    }
-    catch(error){
-        console.log(error)
-        res.status(500).json({data:[],error:error})
-
-    }
-})
-
-app.patch('/salesupdate/:id',async(req,res,next)=>{
-    try{
-        const _id=req.params.id;
-        const updates=req.body;
-        const options={new:true}
-        const result = await sale.findByIdAndUpdate(_id,updates,options)
-        result.save()
-        res.send(result);
-    }
-    catch(error){
-        console.log(error)
-        res.status(500).json({data:[],error:error})
-
-    }
-})
-
 
 //Updating the Sales values
 app.patch('/patientsbillupdate/:id',async(req,res,next)=>{
@@ -196,119 +65,6 @@ app.patch('/patientsbillupdate/:id',async(req,res,next)=>{
     catch(error){
         console.log(error)
         res.status(500).json({data:[],error:error})
-
-    }
-})
-
-//app get Bill no
-app.get("/billno",async(req,res)=>{
-    try{
-        const billlist=await bill.find()
-        res.json({success:true,data:billlist})
-    }
-    catch(err)
-    {
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-app.post("/bill",async(req,res)=>{
-    try{
-        const addbill=new bill(req.body)
-        await addbill.save()
-        res.json({success:true,data:addbill})
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-//app get Sales
-app.get("/sales",async(req,res)=>{
-    try{
-        const saleslist=await sale.find()
-        res.json({success:true,data:saleslist})
-    }
-    catch(err)
-    {
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-app.post("/sale",async(req,res)=>{
-    try{
-        const addsales=new sale(req.body)
-        await addsales.save()
-        res.json({success:true,data:addsales})
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-//Getting the Inventory List
-app.get("/medlist",async(req,res)=>{
-    try{
-        const medicinelist=await medicine.find()
-        res.json({success:true,data:medicinelist})
-    }
-    catch(err)
-    {
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-//Length of medicine
-app.get("/medicinenumber",async(req,res)=>{
-    try{
-        var query = medicine.find();
-        query.count(function(err,count){
-          res.json({data:count})
-
-        });
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-//Posting the inventory 
-app.post("/addmed",async(req,res)=>{
-    try{
-        const addmed=new medicine(req.body)
-        await addmed.save()
-        res.json({success:true,data:addmed})
-    }
-    catch(err){
-        res.status(500).json({data:[],error:err})
-    }
-})
-
-
-//Posting the patients 
-app.post("/adduser",async(req,res)=>{
-    try{
-        const addpatient = await patient.create(req.body);
-        res.json({success:true,data:addpatient})
-    }
-    catch(err){
-        res.status(500).json({
-            status: "Failed",
-            message: err.message
-        });
-    }
-})
-
-
-//Deleting the patient using id
-app.delete("/delpatient/:id",async(req,res)=>{
-    console.log(req.params.id)
-    try{
-        
-        patient.remove({_id:req.params.id}).
-    then(result=>{res.status(200).json({message:'patient record Deleted',result:result  })})
-    }catch(err){
-        res.status(500).json({error:err})}{
 
     }
 })

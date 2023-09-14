@@ -1,0 +1,48 @@
+{
+      "medicalExams": [
+        {
+          "Bp":"pqr",
+          "Pulse":"pqr",
+          "Nadi":"pqr",
+          "Jivha":"pqr",
+          "doctorName":"pqr",
+          "findings":"pqr"
+        },
+        {
+          "Bp":"ijk",
+          "Pulse":"ijk",
+          "Nadi":"ijk",
+          "Jivha":"ijk",
+          "doctorName":"ijk",
+          "findings":"ijk"
+        }
+      ],
+      "medicinelist": [
+        {
+          "name":"abc",
+          "opiumated":true,
+          "description":"abcDescp",
+          "batch_no":0,
+          "price":0,
+          "cgst":0,
+          "sgst":0,
+          "expiry_date":"Kal"
+        },
+        {
+          "name":"xyz",
+          "opiumated":true,
+          "description":"xyzDescp",
+          "batch_no":0,
+          "price":0,
+          "cgst":0,
+          "sgst":0,
+          "expiry_date":"parso"
+        }
+      ],
+      "aadharnumber": "123456789012",
+      "state": "Haryana",
+      "name": "DON",
+      "fathersname": "Don Ka Baap",
+      "phonenumber": "123456789"
+      
+}
