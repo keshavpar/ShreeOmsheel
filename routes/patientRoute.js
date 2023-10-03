@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.route('/patientnumber').get(patientController.countAllPatients);
 router.route('/todaypat').get(patientController.todayPatientList);
+router.route('/correct-city-state-typos').get(patientController.correctingCityStateTypos);
 router.route('/patientlistpdf').get(patientController.patientListPdf);
 router.route('/patientlist').get(patientController.patientList);
 router.route('/addpatient').post(patientController.addPatient);

@@ -61,8 +61,8 @@ const patients = new mongoose.Schema({
         default: ''
     },
     quantity: {
-        type: Number,
-        default: 0
+        type: String,
+        default: ''
     },
     maritalstatus: {
         type: String,
