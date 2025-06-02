@@ -137,18 +137,20 @@ exports.patientList = asyncErrorHandler( async(req, res, next)=>{ // "/patientli
 })
 
 //Posting the patients 
-exports.addPatient = asyncErrorHandler( async(req, res, next)=>{ // "/addpatient"
-
+exports.addPatient = asyncErrorHandler(async (req, res, next) => {
+    console.log("Request body:", req.body); // Debug log
+  
     const addpatient = await Patient.create(req.body);
-
+  
+    console.log("Patient created:", addpatient); // Debug log
+  
     res.status(201).json({
-        status: "Success",
-        data: {
-            addpatient
-        }
+      status: "Success",
+      data: {
+        addpatient,
+      },
     });
-
-})
+  });
 
 //Deleting the patient using id
 exports.deletePatient = asyncErrorHandler( async(req, res, next)=>{  // "/delpatient/:id"

@@ -1,5 +1,7 @@
 const express = require('express');
 const morgan = require('morgan');
+const helmet = require('helmet');
+const cors = require('cors');
 
 const CustomError = require('./utils/customError');
 const globalErrorHandler = require('./controllers/errorController');
@@ -13,7 +15,8 @@ const doctorRouter = require('./routes/doctorRoute');
 const app = express();
 
 app.use(express.json());
-
+app.use(helmet());
+app.use(cors());
 if(process.env.NODE_ENV === 'development'){
     app.use(morgan('dev'));
 }
