@@ -11,6 +11,8 @@
   "author": "Keshav Parihar",
   "license": "ISC",
   "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "axios": "^1.10.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",
@@ -24,6 +26,10 @@
     "nodemailer": "^6.9.5",
     "nodemon": "^2.0.19",
     "save": "^2.5.0",
-    "validator": "^13.11.0"
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "validator": "^13.11.0",
+    "winston": "^3.17.0",
+    "yamljs": "^0.3.0"
   }
 }

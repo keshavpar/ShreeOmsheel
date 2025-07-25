@@ -1,15 +1,11 @@
 const express = require('express');
-
 const router = express.Router();
+const doctorController = require('../controllers/doctorController');
 
-const doctorController = require('./../controllers/doctorController');
-
-router.route('/doctor')
-    .get(doctorController.doctorLists)
-    .post(doctorController.addDoctor)
-
-router.route('/doctor/:id')
-    .patch(doctorController.updateDoctor)
-    .delete(doctorController.deleteDoctor);
+router.post('/add-doctor', doctorController.addDoctor);
+router.get('/doctor-list', doctorController.getAllDoctors);
+router.get('/doctor/:id', doctorController.getDoctorById);
+router.patch('/doctor/:id', doctorController.updateDoctor);
+router.delete('/doctor/:id', doctorController.deleteDoctor);
 
 module.exports = router;

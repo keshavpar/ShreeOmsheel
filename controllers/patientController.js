@@ -1,170 +1,301 @@
-const Patient = require('./../models/patients');
+const Patient = require('../models/patients');
+const CustomError = require('../utils/customError');
+const asyncErrorHandler = require('../utils/asyncErrorHandler');
+const { getSignedUrl, getSignedUrlPromise } = require('../utils/s3Utils');
 
-const CustomError = require('./../utils/customError');
-const asyncErrorHandler = require('./../utils/asyncErrorHandler');
+// Utility: Generate signed URL
+const generateSignedUrl = (key, expiresInSeconds = 3600) => {
+  return getSignedUrl(key, expiresInSeconds);
+};
 
-exports.countAllPatients = asyncErrorHandler(async(req, res, next)=>{ // "/patientnumber"
-
-    const count = await Patient.countDocuments({});
-
-    res.status(200).json({
-        status: "Success",
-        data: {
-            Count: count
-        }
-    });
-
-})
-
-//Get Today Patient List
-exports.todayPatientList = asyncErrorHandler (async (req, res, next)=>{ // "/todaypat"
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set time to midnight
-    // For Ex: Today is 23rd So all patients within Date : 23 - time: 12:00AM <=> Date: 24 - time: 12:00AM
-    const nextDay = new Date(today);
-    nextDay.setDate(nextDay.getDate() + 1);
-    
-    const todaysPatients = await Patient.find({ Date: { $gte: today, $lt: nextDay } })
-        // .sort({ Date: -1 }); // For newest Patients at the top
-
-    res.status(200).json({
-        staus: "Success",
-        // Count: todaysPatients.length,
-        // Date: today.toISOString().split('T')[0],
-        data: {
-            patients: todaysPatients
-        }
-    });
-})
-
-exports.correctingCityStateTypos = asyncErrorHandler( async (req, res, next) => {
-    
-    const cityMappings = {
-        "hanumangrah": "hanumangarh",
-        "Hanumangrah": "hanumangarh",
-        "fatehbad": "fatehabad",
-        "Fatehbad": "fatehabad",
-        "Gangangar":"Ganganagar",
-        "Ganagangar":"Ganganagar",
-        "Bhatinda":"Bhathinda",
-        "Hanuangarh":"Hanumangarh",
-        "hamunngrah":"Hanumangarh"
-        // Add more mappings as needed
-    };
-
-    const stateMappings={
-        "Haryan":"Haryana",
-        "Harayana":"Haryana",
-        "raasthan":"Rajasthan",
-        "hryana":"Haryana",
-        "haryan":"Haryana",
-        "Rjasthan":"Rajasthan"
+// Utility: Attach signed URLs
+const attachSignedUrls = (patients) => {
+  return patients.map((p) => {
+    if (Array.isArray(p.reports)) {
+      p.reports = p.reports.map((r) => ({
+        ...r,
+        signedUrl: r.url ? generateSignedUrl(r.url) : null,
+      }));
     }
-
-    for (const incorrectCity in cityMappings) {
-        const correctCity = cityMappings[incorrectCity];
-    
-        // Update documents with incorrect city name to use the correct city name
-        await Patient.updateMany({ city: incorrectCity }, { $set: { city: correctCity } });
+    if (p.affidavitDocumentUrl) {
+      p.affidavitSignedUrl = generateSignedUrl(p.affidavitDocumentUrl);
     }
-
-    for (const incorrectState in stateMappings) {
-        const correctState = stateMappings[incorrectState];
-    
-        // Update documents with incorrect state name to use the correct state name
-        await Patient.updateMany({ state: incorrectState }, { $set: { state: correctState } });
+    if (p.imageUrl) {
+      p.imageSignedUrl = generateSignedUrl(p.imageUrl);
     }
-        //  ¯\_(ツ)_/¯
-    res.status(200).json({
-        status: 'success',
-        message: 'All listed city and state names are orrected :)'
-    });
+    return p;
+  });
+};
 
-})
+// GET /patientlist
+exports.getAllPatients = asyncErrorHandler(async (req, res) => {
+  const { city, doctor, date, page = 1, limit = 10 } = req.query;
+  const filter = {};
 
-exports.patientListPdf = asyncErrorHandler( async(req, res, next)=>{ // "/patientlistpdf"
+  if (city) filter.city = city;
+  if (doctor) filter.doctor = doctor;
+  if (date) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const nextDay = new Date(d);
+    nextDay.setDate(d.getDate() + 1);
+    filter.Date = { $gte: d, $lt: nextDay };
+  }
 
-    const patients = await Patient.aggregate([
-        {
-            $group: { 
-                _id: { // Still some typos 'Fatehbad' and 'Fatehabad' will be different 
-                    city: { $toLower: { $trim: { input: '$city' } } },// 'Haryana' <=> 'haryana' (so first lowercase all)
-                    state: { $toLower: { $trim: { input: '$state' } } },// 'Harayana' <=> 'Harayana_' (trim the extra space)
-                },
-                patients: {
-                    $push: {
-                        name: '$name',
-                        fathersname: '$fathersname',
-                        phonenumber: '$phonenumber',
-                        aadharnumber: '$aadharnumber',
-                        Date: '$Date',
-                        address: '$address',
-                        state: '$state',
-                        city: '$city',
-                        quantity: '$quantity'
-                    }
-                },
-                count: { $sum: 1 }
-            }
-        }
-    ]);
-    
-    res.status(200).json({
-        status: "Success",
-        Count: patients.length,
-        data: {
-            patients
-        }
-    });
-})
+  const patients = await Patient.find(filter)
+    .sort({ Date: -1 })
+    .skip((page - 1) * limit)
+    .limit(+limit);
 
-//Getting the Patients list
-exports.patientList = asyncErrorHandler( async(req, res, next)=>{ // "/patientlist"
-    
-    const patients = await Patient.find({})
-        .sort({ Date: -1 }) // Sort by Date in descending order (most recent first)
-        // select('-_id name address state Date phonenumber') // Specify the fields you want to include in the result
-        // '-' before the field name means exclude 
-    res.status(200).json({
-        status: "Success",
-        // Count: patients.length,
-        data: {
-            patients
-        }
-    });
-    
-})
+  const formatted = attachSignedUrls(patients.map(p => p.toObject()));
+  res.status(200).json({ status: 'Success', data: { patients: formatted } });
+});
 
-//Posting the patients 
-exports.addPatient = asyncErrorHandler(async (req, res, next) => {
-    console.log("Request body:", req.body); // Debug log
-  
-    const addpatient = await Patient.create(req.body);
-  
-    console.log("Patient created:", addpatient); // Debug log
-  
-    res.status(201).json({
-      status: "Success",
-      data: {
-        addpatient,
-      },
-    });
+// GET /countpatients
+exports.getPatientCount = asyncErrorHandler(async (req, res) => {
+  const count = await Patient.countDocuments();
+  res.status(200).json({ status: 'Success', data: { count } });
+});
+
+// GET /todaypatients
+exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Start of today
+
+  const nextDay = new Date(today);
+  nextDay.setDate(today.getDate() + 1); // Start of next day
+
+  const patients = await Patient.find({
+    createdAt: { $gte: today, $lt: nextDay }
   });
 
-//Deleting the patient using id
-exports.deletePatient = asyncErrorHandler( async(req, res, next)=>{  // "/delpatient/:id"
-    
-    let deletedPatient = await Patient.findByIdAndDelete(req.params.id);
+  const formatted = attachSignedUrls(patients.map(p => p.toObject()));
 
-    if(!deletedPatient){
-        const err = new CustomError(`Patient with _id:${req.params.id} is not found!`, 404);
-        return next(err);
+  res.status(200).json({
+    status: 'Success',
+    data: { patients: formatted }
+  });
+});
+
+
+// GET /signed-report-urls/:patientId
+exports.getSignedUrlsForReports = asyncErrorHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const patient = await Patient.findById(patientId);
+
+  if (!patient || !Array.isArray(patient.reports) || patient.reports.length === 0) {
+    return res.status(404).json({ status: 'error', message: 'No reports found.' });
+  }
+
+  const signedReports = await Promise.all(
+    patient.reports.map(async (r) => ({
+      title: r.title,
+      signedUrl: await getSignedUrlPromise(r.url, 300),
+    }))
+  );
+
+  res.status(200).json({ status: 'success', data: signedReports });
+});
+
+// PATCH /edit-patient/:id
+exports.updatePatient = asyncErrorHandler(async (req, res, next) => {
+  console.log('Updating patient with ID:', req.params.id);
+  try {
+    const updated = await Patient.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!updated) {
+      return next(new CustomError('Patient not found', 404));
     }
 
-    res.status(204).json({
-        status: "Success",
-        data: null
-    });  
+    res.status(200).json({
+      status: 'Success',
+      data: { patient: attachSignedUrls([updated.toObject()])[0] },
+    });
+  } catch (err) {
+    console.error('Error updating patient:', err);
+    next(err);
+  }
+});
+// POST /add-medical-exam/:id
+exports.addMedicalExam = async (req, res, next) => {
+  try {
+    const {
+      doctor,
+      bp,
+      pulse,
+      nadi,
+      jivha,
+      time,
+      findings,
+      capgiven,
+      medicines,
+      tapering = [] // default to empty array if not sent
+    } = req.body;
 
-})
+    // 🔒 Strict Validation (Minimal + Fast)
+    if (!doctor?.name || !doctor?._id)
+      return res.status(400).json({ status: 'Error', message: 'Invalid doctor data' });
+
+    if (![bp, pulse, nadi, jivha, time, findings].every(Boolean))
+      return res.status(400).json({ status: 'Error', message: 'Missing required fields' });
+
+    if (!Array.isArray(medicines))
+      return res.status(400).json({ status: 'Error', message: 'Medicines must be an array' });
+
+    if (!Array.isArray(tapering))
+      return res.status(400).json({ status: 'Error', message: 'Tapering must be an array' });
+
+    // ✅ Optionally: Validate tapering entries (fast, inline)
+    for (const entry of tapering) {
+      if (
+        !entry.date ||
+        typeof entry.morning !== 'number' ||
+        typeof entry.evening !== 'number'
+      ) {
+        return res.status(400).json({
+          status: 'Error',
+          message: 'Invalid tapering entry. Each must contain date, morning, and evening as numbers.',
+        });
+      }
+    }
+
+    // 🔍 Patient Lookup (lean for performance)
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) return res.status(404).json({ status: 'Error', message: 'Patient not found' });
+
+    // 🧪 Compose medical exam
+    const newExam = {
+      doctor,
+      bp,
+      pulse,
+      nadi,
+      jivha,
+      time,
+      findings,
+      capgiven,
+      medicines,
+      tapering,
+    };
+
+    patient.medicalExams.push(newExam);
+
+    // 💾 Save (skip validation for speed if confident: `validateBeforeSave: false`)
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      data: { medicalExams: patient.medicalExams },
+    });
+  } catch (err) {
+    console.error('Error adding medical exam:', err);
+    return res.status(500).json({ status: 'Error', message: 'Internal server error' });
+  }
+};
+
+
+// PATCH /patients/:id/blacklist
+exports.toggleBlacklist = asyncErrorHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const { blacklist } = req.body;
+
+  if (typeof blacklist !== 'boolean') {
+    return next(new CustomError('Invalid value for blacklist; must be boolean.', 400));
+  }
+
+  const updated = await Patient.findByIdAndUpdate(
+    id,
+    { blacklist },
+    { new: true, runValidators: true }
+  );
+
+  if (!updated) {
+    return next(new CustomError('Patient not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: `Patient has been ${blacklist ? 'blacklisted' : 'unblacklisted'}`,
+    data: { patient: attachSignedUrls([updated.toObject()])[0] }
+  });
+});
+
+// GET /patientlist-pdf
+exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
+  const grouped = await Patient.aggregate([
+    {
+      $group: {
+        _id: {
+          city: { $toLower: { $trim: { input: '$city' } } },
+          state: { $toLower: { $trim: { input: '$state' } } },
+        },
+        patients: { $push: '$$ROOT' },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  grouped.forEach(g => {
+    g.patients = attachSignedUrls(g.patients.map(p => p.toObject()));
+  });
+
+  res.status(200).json({
+    status: 'Success',
+    count: grouped.length,
+    data: grouped,
+  });
+});
+
+// GET /image-url/:patientId
+exports.getImageUrl = asyncErrorHandler(async (req, res) => {
+  const { patientId } = req.params;
+  const patient = await Patient.findById(patientId);
+
+  if (!patient || !patient.imageUrl) {
+    return res.status(404).json({ status: 'error', message: 'Image not found' });
+  }
+
+  const signedUrl = await getSignedUrlPromise(patient.imageUrl, 300);
+
+  res.status(200).json({ status: 'success', data: { signedImageUrl: signedUrl } });
+});
+
+// POST /add-patient
+exports.createPatient = asyncErrorHandler(async (req, res) => {
+  try {
+    const patient = await Patient.create(req.body);
+    res.status(200).json({
+      status: "success",
+      message: "Patient added successfully",
+      data: { patient: attachSignedUrls([patient.toObject()])[0] },
+    });
+  } catch (err) {
+    console.error("❌ Error while saving patient:", err.message);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+// DELETE /delpatient/:id
+exports.deletePatient = asyncErrorHandler(async (req, res, next) => {
+  const deleted = await Patient.findByIdAndDelete(req.params.id);
+  if (!deleted) return next(new CustomError('Patient not found', 404));
+  res.status(204).json({ status: 'Success', data: null });
+});
+
+// PATCH /correct-city-state
+exports.correctTypos = asyncErrorHandler(async (req, res) => {
+  const cityFixes = { hanumangrah: 'hanumangarh', Hanumangrah: 'hanumangarh' };
+  const stateFixes = { Haryan: 'Haryana', raasthan: 'Rajasthan' };
+
+  for (const [wrong, right] of Object.entries(cityFixes)) {
+    await Patient.updateMany({ city: wrong }, { $set: { city: right } });
+  }
+
+  for (const [wrong, right] of Object.entries(stateFixes)) {
+    await Patient.updateMany({ state: wrong }, { $set: { state: right } });
+  }
+
+  res.status(200).json({ status: 'success', message: 'City and state typos fixed' });
+});
