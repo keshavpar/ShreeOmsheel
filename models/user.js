@@ -87,7 +87,7 @@ const userSchema = new mongoose.Schema({
     lastModifiedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
-    }
+    }  
 });
 
 // Hash password before saving

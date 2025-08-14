@@ -107,6 +107,32 @@ exports.logAttendance = asyncErrorHandler(async (req, res, next) => {
   }
 });
 
+// Get assigned work for a specific user
+exports.getAssignedWork = asyncErrorHandler(async (req, res, next) => {
+  const { userId } = req.params;
+
+  if (!userId) {
+    return next(new CustomError('User ID is required', 400));
+  }
+
+  const user = await User.findById(userId).select('name role dailyWork');
+
+  if (!user) {
+    return next(new CustomError('User not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      user: {
+        name: user.name,
+        role: user.role,
+        assignedWork: user.dailyWork
+      }
+    }
+  });
+});
+
 // Assign daily work
 exports.assignWork = asyncErrorHandler(async (req, res, next) => {
   try {

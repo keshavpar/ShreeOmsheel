@@ -17,7 +17,7 @@ router.post('/aadhaar/upload-url', protect, s3Controller.getSignedUrlForAadhaar)
 // Admin-only actions
 router.get('/all', protect, restrictTo('admin'), userController.getAllUsers);
 router.patch('/:id/toggle-active', protect, restrictTo('admin'), userController.toggleUserActive);
-
+router.get('/:userId/assigned-work', userController.getAssignedWork);
 // Staff/Doctor log attendance (on login) 
 router.post('/attendance/log', protect, userController.logAttendance);
 

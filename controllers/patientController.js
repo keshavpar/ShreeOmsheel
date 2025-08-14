@@ -28,28 +28,66 @@ const attachSignedUrls = (patients) => {
 };
 
 // GET /patientlist
+// GET /patients?city=&doctor=&date=&page=&limit=
 exports.getAllPatients = asyncErrorHandler(async (req, res) => {
-  const { city, doctor, date, page = 1, limit = 10 } = req.query;
+  const { city, doctor, date, page = 1, limit = 10, name, aadharNumber } = req.query;
+
+  // Base filter object
   const filter = {};
 
+  // Filter by city
   if (city) filter.city = city;
+
+  // Filter by doctor
   if (doctor) filter.doctor = doctor;
+
+  // Filter by exact date (00:00 to 23:59 range)
   if (date) {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
+
     const nextDay = new Date(d);
     nextDay.setDate(d.getDate() + 1);
-    filter.Date = { $gte: d, $lt: nextDay };
+
+    filter.createdAt = { $gte: d, $lt: nextDay };
   }
 
-  const patients = await Patient.find(filter)
-    .sort({ Date: -1 })
-    .skip((page - 1) * limit)
-    .limit(+limit);
+  // Search by Aadhaar Number (Exact match)
+  if (aadharNumber) {
+    filter.aadharnumber = aadharNumber.trim();
+  }
 
-  const formatted = attachSignedUrls(patients.map(p => p.toObject()));
-  res.status(200).json({ status: 'Success', data: { patients: formatted } });
+  // Search by Name (Case-insensitive partial match)
+  if (name) {
+    filter.name = { $regex: name.trim(), $options: 'i' }; 
+  }
+
+  // Pagination variables
+  const pageNumber = parseInt(page, 10) || 1;
+  const pageLimit = parseInt(limit, 10) || 10;
+
+  // Fetch patients
+  const patients = await Patient.find(filter)
+    .sort({ createdAt: -1 }) // Most recent first
+    .skip((pageNumber - 1) * pageLimit)
+    .limit(pageLimit)
+    .lean();
+
+  // Attach signed URLs (if any media exists)
+  const formatted = attachSignedUrls(patients);
+
+  // Return response
+  res.status(200).json({
+    status: 'Success',
+    data: { patients: formatted },
+    pagination: {
+      page: pageNumber,
+      limit: pageLimit,
+      count: patients.length
+    }
+  });
 });
+
 
 // GET /countpatients
 exports.getPatientCount = asyncErrorHandler(async (req, res) => {
