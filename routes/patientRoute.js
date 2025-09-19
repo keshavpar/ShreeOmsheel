@@ -11,7 +11,6 @@ router.post('/add-medical-exam/:id', patientController.addMedicalExam);
 router.patch('/edit-patient/:id', patientController.updatePatient);
 router.delete('/delpatient/:id', patientController.deletePatient);
 router.patch('/patients/:id/blacklist', patientController.toggleBlacklist);
- 
 //Pending verification routes
 router.get('/signed-report-urls/:patientId', patientController.getSignedUrlsForReports);
 router.get('/image-url/:patientId', patientController.getImageUrl);

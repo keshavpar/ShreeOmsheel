@@ -30,6 +30,19 @@ const appointmentSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    addictionType: {
+      type: String,
+      required: false, // set to true if this is mandatory
+      enum: [
+        'Opium/Afeem',
+        'Heroin',
+        'Chitta',
+        'Prescription Opioids',
+        'Poppy/Bhukki/Doda',
+        'Cannabis/Charas',
+        'Multiple Substances'
+      ], // optional: restrict to known types
+    },
     message: {
       type: String,
       default: '',
