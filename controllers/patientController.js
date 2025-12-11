@@ -301,19 +301,65 @@ exports.getImageUrl = asyncErrorHandler(async (req, res) => {
 });
 
 // POST /add-patient
-exports.createPatient = asyncErrorHandler(async (req, res) => {
+exports.createPatient = asyncErrorHandler(async (req, res, next) => {
+  const payload = req.body;
+
+  if (!payload?.aadharnumber) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Aadhar number is required."
+    });
+  }
+
+  if (String(payload.aadharnumber).length !== 12) {
+    return res.status(400).json({
+      status: "fail",
+      message: "Aadhar number must be exactly 12 digits."
+    });
+  }
+
+  // 🔥 1. DUPLICATE CHECK BEFORE INSERT
+  const existing = await Patient.findOne({ aadharnumber: payload.aadharnumber });
+
+  if (existing) {
+    return res.status(409).json({
+      status: "fail",
+      message: "Patient with this Aadhar number already exists.",
+      existingPatientId: existing._id,
+    });
+  }
+
   try {
-    const patient = await Patient.create(req.body);
-    res.status(200).json({
+    // 🔥 2. CREATE PATIENT
+    const patient = await Patient.create(payload);
+
+    // 🔥 3. ADD SIGNED URLS IF NEEDED
+    const response = attachSignedUrls([patient.toObject()])[0];
+
+    return res.status(200).json({
       status: "success",
-      message: "Patient added successfully",
-      data: { patient: attachSignedUrls([patient.toObject()])[0] },
+      message: "Patient created successfully.",
+      data: { patient: response },
     });
   } catch (err) {
-    console.error("❌ Error while saving patient:", err.message);
-    res.status(500).json({ status: "error", message: err.message });
+    console.error("❌ Patient creation error:", err);
+
+    // 🔥 4. HANDLE MONGODB DUPLICATE ERROR (11000) AS WELL
+    if (err.code === 11000) {
+      return res.status(409).json({
+        status: "fail",
+        message: "Duplicate entry. Aadhar number must be unique.",
+        keyValue: err.keyValue
+      });
+    }
+
+    return res.status(500).json({
+      status: "error",
+      message: "Internal server error while creating patient."
+    });
   }
 });
+
 
 // DELETE /delpatient/:id
 exports.deletePatient = asyncErrorHandler(async (req, res, next) => {
