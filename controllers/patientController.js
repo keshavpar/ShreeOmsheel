@@ -35,13 +35,10 @@ exports.getAllPatients = asyncErrorHandler(async (req, res) => {
   // Base filter object
   const filter = {};
 
-  // Filter by city
   if (city) filter.city = city;
-
-  // Filter by doctor
   if (doctor) filter.doctor = doctor;
 
-  // Filter by exact date (00:00 to 23:59 range)
+  // Exact date range filter
   if (date) {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
@@ -52,31 +49,31 @@ exports.getAllPatients = asyncErrorHandler(async (req, res) => {
     filter.createdAt = { $gte: d, $lt: nextDay };
   }
 
-  // Search by Aadhaar Number (Exact match)
+  // Aadhaar exact match
   if (aadharNumber) {
     filter.aadharnumber = aadharNumber.trim();
   }
 
-  // Search by Name (Case-insensitive partial match)
+  // Case-insensitive name search
   if (name) {
-    filter.name = { $regex: name.trim(), $options: 'i' }; 
+    filter.name = { $regex: name.trim(), $options: 'i' };
   }
 
   // Pagination variables
   const pageNumber = parseInt(page, 10) || 1;
-  const pageLimit = parseInt(limit, 10) || 10;
+  const pageLimit  = parseInt(limit, 10) || 10;
 
-  // Fetch patients
+  // Fetch patients with absolute guaranteed "latest first"
   const patients = await Patient.find(filter)
-    .sort({ createdAt: -1 }) // Most recent first
+    .sort({ _id: -1 }) // <---- GUARANTEED latest entry first
     .skip((pageNumber - 1) * pageLimit)
     .limit(pageLimit)
     .lean();
 
-  // Attach signed URLs (if any media exists)
+  // Attach signed URLs
   const formatted = attachSignedUrls(patients);
 
-  // Return response
+  // Response
   res.status(200).json({
     status: 'Success',
     data: { patients: formatted },
