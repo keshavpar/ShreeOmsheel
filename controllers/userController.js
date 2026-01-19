@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('./../models/user');
 const asyncErrorHandler = require('./../utils/asyncErrorHandler');
 const CustomError = require('./../utils/customError');
+const attachDoctorIfNeeded = require('../utils/attachDoctorIfNeeded');
 
 // Helper: Generate signed JWT
 const signToken = (id) => {
@@ -11,13 +12,23 @@ const signToken = (id) => {
 };
 
 // Helper: Send token in response
-const createSendToken = (user, statusCode, res) => {
+const createSendToken = async (user, statusCode, res) => {
   user.password = undefined;
+
   const token = signToken(user._id);
+
+  let doctor = null;
+  if (user.role === 'doctor') {
+    doctor = await attachDoctorIfNeeded(user);
+  }
+
   res.status(statusCode).json({
     status: 'success',
     token,
-    data: { user },
+    data: {
+      user,
+      ...(doctor && { doctor })
+    },
   });
 };
 
