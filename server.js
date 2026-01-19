@@ -14,18 +14,24 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 const env = process.env.NODE_ENV || 'development';
 
 let dbConnectionString;
-const port = process.env.PORT || 3000;
+let port;
 
 switch (env) {
   case 'development':
     dbConnectionString = process.env.DB_connection_String;
+    port = process.env.DEVELOPMENTPORT || 8005;
     break;
+
   case 'testing':
     dbConnectionString = process.env.TEST_DB_CONNECTION;
+    port = process.env.TEST_PORT || 8001;
     break;
+
   case 'production':
     dbConnectionString = process.env.PROD_DB_CONNECTION;
+    port = process.env.PORT || 8080;
     break;
+
   default:
     console.error('❌ Unknown NODE_ENV:', env);
     process.exit(1);
