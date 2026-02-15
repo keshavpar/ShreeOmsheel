@@ -61,7 +61,7 @@ exports.getAllPatients = asyncErrorHandler(async (req, res) => {
 
   // Pagination variables
   const pageNumber = parseInt(page, 10) || 1;
-  const pageLimit  = parseInt(limit, 10) || 10;
+  const pageLimit = parseInt(limit, 10) || 10;
 
   // Fetch patients with absolute guaranteed "latest first"
   const patients = await Patient.find(filter)
@@ -247,7 +247,7 @@ exports.deleteObservation = async (req, res) => {
     }
 
     // 🗑 Remove observation
-observation.remove();s
+    observation.remove();
 
     // 💾 Save
     await patient.save({ validateBeforeSave: false });
