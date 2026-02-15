@@ -85,6 +85,186 @@ exports.getAllPatients = asyncErrorHandler(async (req, res) => {
   });
 });
 
+// POST /add-observation/:id
+exports.addObservation = async (req, res) => {
+  try {
+    const {
+      doctor,
+      bp,
+      pulse,
+      nadi,
+      dosh,
+      bal,
+      jivha,
+      findings,
+      capgiven,
+      time,
+    } = req.body;
+
+    // 🔒 Strict Validation (same philosophy as addMedicalExam)
+    if (!doctor?.name || !doctor?._id) {
+      return res.status(400).json({
+        status: 'Error',
+        message: 'Invalid doctor data',
+      });
+    }
+
+    if (
+      ![bp, pulse, nadi, jivha].some(Boolean) && // allow partial vitals
+      !findings
+    ) {
+      return res.status(400).json({
+        status: 'Error',
+        message: 'At least vitals or findings must be provided',
+      });
+    }
+
+    // 🔍 Patient Lookup
+    const patient = await Patient.findById(req.params.id);
+    if (!patient) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Patient not found',
+      });
+    }
+
+    // 🧪 Compose observation (MATCHES ObservationSchema EXACTLY)
+    const newObservation = {
+      doctor,
+      bp,
+      pulse,
+      nadi,
+      dosh,
+      bal,
+      jivha,
+      findings,
+      capgiven,
+      time,
+    };
+
+    patient.observations.push(newObservation);
+
+    // 💾 Save (skip validation for speed — consistent with your pattern)
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      data: {
+        observations: patient.observations,
+      },
+    });
+  } catch (err) {
+    console.error('Error adding observation:', err);
+    return res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
+// PATCH /edit-observation/:patientId/:observationId
+exports.editObservation = async (req, res) => {
+  try {
+    const { patientId, observationId } = req.params;
+    const updatePayload = req.body;
+
+    // 🔍 Fetch patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Patient not found',
+      });
+    }
+
+    // 🔍 Find observation
+    const observation = patient.observations.id(observationId);
+    if (!observation) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Observation not found',
+      });
+    }
+
+    // 🧠 Update only allowed fields (no blind overwrite)
+    const allowedFields = [
+      'bp',
+      'pulse',
+      'nadi',
+      'dosh',
+      'bal',
+      'jivha',
+      'findings',
+      'capgiven',
+      'time',
+      'doctor',
+    ];
+
+    allowedFields.forEach((field) => {
+      if (updatePayload[field] !== undefined) {
+        observation[field] = updatePayload[field];
+      }
+    });
+
+    // 💾 Save
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      data: {
+        observation,
+      },
+    });
+  } catch (err) {
+    console.error('Error editing observation:', err);
+    return res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
+
+// DELETE /delete-observation/:patientId/:observationId
+exports.deleteObservation = async (req, res) => {
+  try {
+    const { patientId, observationId } = req.params;
+
+    // 🔍 Fetch patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Patient not found',
+      });
+    }
+
+    // 🔍 Locate observation
+    const observation = patient.observations.id(observationId);
+    if (!observation) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Observation not found',
+      });
+    }
+
+    // 🗑 Remove observation
+    observation.deleteOne();
+
+    // 💾 Save
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      message: 'Observation deleted successfully',
+    });
+  } catch (err) {
+    console.error('Error deleting observation:', err);
+    return res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
+
 
 // GET /countpatients
 exports.getPatientCount = asyncErrorHandler(async (req, res) => {
@@ -298,63 +478,79 @@ exports.getImageUrl = asyncErrorHandler(async (req, res) => {
 });
 
 // POST /add-patient
-exports.createPatient = asyncErrorHandler(async (req, res, next) => {
+const isValidAadhaar = (value) => {
+  return /^\d{12}$/.test(String(value));
+};
+
+exports.createPatient = asyncErrorHandler(async (req, res) => {
   const payload = req.body;
 
   if (!payload?.aadharnumber) {
     return res.status(400).json({
-      status: "fail",
-      message: "Aadhar number is required."
+      status: 'fail',
+      message: 'Aadhaar number is required.',
     });
   }
 
-  if (String(payload.aadharnumber).length !== 12) {
+  if (!isValidAadhaar(payload.aadharnumber)) {
     return res.status(400).json({
-      status: "fail",
-      message: "Aadhar number must be exactly 12 digits."
+      status: 'fail',
+      message: 'Aadhaar number must be exactly 12 numeric digits.',
     });
   }
 
-  // 🔥 1. DUPLICATE CHECK BEFORE INSERT
-  const existing = await Patient.findOne({ aadharnumber: payload.aadharnumber });
+  const existingPatient = await Patient.findOne({
+    aadharnumber: payload.aadharnumber,
+  }).lean();
 
-  if (existing) {
-    return res.status(409).json({
-      status: "fail",
-      message: "Patient with this Aadhar number already exists.",
-      existingPatientId: existing._id,
-    });
-  }
+  if (existingPatient) {
 
-  try {
-    // 🔥 2. CREATE PATIENT
-    const patient = await Patient.create(payload);
-
-    // 🔥 3. ADD SIGNED URLS IF NEEDED
-    const response = attachSignedUrls([patient.toObject()])[0];
-
-    return res.status(200).json({
-      status: "success",
-      message: "Patient created successfully.",
-      data: { patient: response },
-    });
-  } catch (err) {
-    console.error("❌ Patient creation error:", err);
-
-    // 🔥 4. HANDLE MONGODB DUPLICATE ERROR (11000) AS WELL
-    if (err.code === 11000) {
-      return res.status(409).json({
-        status: "fail",
-        message: "Duplicate entry. Aadhar number must be unique.",
-        keyValue: err.keyValue
+    // 🔴 BLACKLIST — HARD BLOCK
+    if (existingPatient.blacklist) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'This patient is blacklisted.',
+        flags: {
+          blacklisted: true,
+          hasAffidavit: !!existingPatient.affidavitDocumentUrl,
+        },
+        data: {
+          patientId: existingPatient._id,
+        },
       });
     }
 
-    return res.status(500).json({
-      status: "error",
-      message: "Internal server error while creating patient."
+    // 🟠 DUPLICATE — INFORM FRONTEND ABOUT AFFIDAVIT
+    return res.status(409).json({
+      status: 'fail',
+      message: 'Patient with this Aadhaar number already exists.',
+      flags: {
+        blacklisted: false,
+        hasAffidavit: !!existingPatient.affidavitDocumentUrl,
+      },
+      data: {
+        patientId: existingPatient._id,
+      },
     });
   }
+
+  const newPatient = await Patient.create(payload);
+
+  const formattedPatient = attachSignedUrls([
+    newPatient.toObject(),
+  ])[0];
+
+  return res.status(201).json({
+    status: 'success',
+    message: 'Patient created successfully.',
+    flags: {
+      blacklisted: false,
+      hasAffidavit: false,
+    },
+    data: {
+      patient: formattedPatient,
+    },
+  });
 });
 
 

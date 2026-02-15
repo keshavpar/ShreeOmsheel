@@ -22,6 +22,25 @@ const MedicineSchema = new mongoose.Schema({
   
 }, { _id: false });
 
+const ObservationSchema = new mongoose.Schema({
+  bp: { type: String, default: '' },
+  pulse: { type: String, default: '' },
+  nadi: { type: String, default: '' },
+  dosh: { type: String, default: '' },
+  bal: { type: String, default: '' },
+  jivha: { type: String, default: '' },
+
+  findings: { type: String, default: '', trim: true },
+  capgiven: { type: Number, default: 0 },
+
+  time: { type: Date, default: Date.now },
+
+  doctor: {
+    _id: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
+    name: { type: String, required: true }
+  }
+}, { _id: false });
+
 // Medical Examination Subschema with embedded medicines
 const MedicalExamSchema = new mongoose.Schema({
   bp: { type: String, default: '' },
@@ -72,7 +91,7 @@ const PatientSchema = new mongoose.Schema({
   addictionperiod: { type: String, trim: true },
   quantity: { type: String, trim: true },
   image: { type: String, default: '' },
-
+  observations: { type: [ObservationSchema], default: [] },
   medicalExams: { type: [MedicalExamSchema], default: [] },
   totalcap: { type: Number, default: 0 },
   captoday: { type: Number, default: 0 },
