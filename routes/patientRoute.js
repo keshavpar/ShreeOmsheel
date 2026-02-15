@@ -15,9 +15,9 @@ router.patch('/patients/:id/blacklist', patientController.toggleBlacklist);
 router.get('/signed-report-urls/:patientId', patientController.getSignedUrlsForReports);
 router.get('/image-url/:patientId', patientController.getImageUrl);
 
-router.post('/add-observation/:id', addObservation);
-router.patch('/edit-observation/:patientId/:observationId', editObservation);
-router.delete('/delete-observation/:patientId/:observationId', deleteObservation);
+router.post('/add-observation/:id', patientController.addObservation);
+router.patch('/edit-observation/:patientId/:observationId', patientController.editObservation);
+router.delete('/delete-observation/:patientId/:observationId', patientController.deleteObservation);
 
 
 //UNRELATED ROUTES
