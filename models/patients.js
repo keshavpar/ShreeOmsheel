@@ -58,7 +58,7 @@ const MedicalExamSchema = new mongoose.Schema({
     name: { type: String, required: true }
   },
   tapering: { type: [TaperingEntrySchema], default: [] }
-}, { _id: false });
+});
 
 // Report Subschema
 const ReportSchema = new mongoose.Schema({
