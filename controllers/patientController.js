@@ -247,7 +247,7 @@ exports.deleteObservation = async (req, res) => {
     }
 
     // 🗑 Remove observation
-    observation.deleteOne();
+observation.remove();s
 
     // 💾 Save
     await patient.save({ validateBeforeSave: false });
