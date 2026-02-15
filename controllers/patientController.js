@@ -334,6 +334,102 @@ exports.updatePatient = asyncErrorHandler(async (req, res, next) => {
     next(err);
   }
 });
+// PATCH /edit-medical-exam/:patientId/:examId
+exports.editMedicalExam = async (req, res) => {
+  try {
+    const { patientId, examId } = req.params;
+    const updatePayload = req.body;
+
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Patient not found',
+      });
+    }
+
+    const exam = patient.medicalExams.id(examId);
+    if (!exam) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Medical exam not found',
+      });
+    }
+
+    // 🔒 Allowed fields ONLY
+    const allowedFields = [
+      'bp',
+      'pulse',
+      'nadi',
+      'jivha',
+      'time',
+      'findings',
+      'capgiven',
+      'medicines',
+      'tapering',
+      'doctor',
+    ];
+
+    allowedFields.forEach((field) => {
+      if (updatePayload[field] !== undefined) {
+        exam[field] = updatePayload[field];
+      }
+    });
+
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      data: {
+        medicalExam: exam,
+      },
+    });
+  } catch (err) {
+    console.error('Error editing medical exam:', err);
+    return res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
+// DELETE /delete-medical-exam/:patientId/:examId
+exports.deleteMedicalExam = async (req, res) => {
+  try {
+    const { patientId, examId } = req.params;
+
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Patient not found',
+      });
+    }
+
+    const exam = patient.medicalExams.id(examId);
+    if (!exam) {
+      return res.status(404).json({
+        status: 'Error',
+        message: 'Medical exam not found',
+      });
+    }
+
+    exam.remove();
+
+    await patient.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      status: 'Success',
+      message: 'Medical exam deleted successfully',
+    });
+  } catch (err) {
+    console.error('Error deleting medical exam:', err);
+    return res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
+
 // POST /add-medical-exam/:id
 exports.addMedicalExam = async (req, res, next) => {
   try {

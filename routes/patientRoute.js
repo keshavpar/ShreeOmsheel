@@ -7,7 +7,11 @@ router.get('/patientlist', patientController.getAllPatients);
 router.get('/countpatients', patientController.getPatientCount);
 router.get('/todaypatients', patientController.getTodayPatients);
 router.post('/add-patient', patientController.createPatient);
+//Medical exam routes
 router.post('/add-medical-exam/:id', patientController.addMedicalExam);
+router.patch('/edit-medical-exam/:patientId/:examId', patientController.editMedicalExam);
+router.delete('/delete-medical-exam/:patientId/:examId', patientController.deleteMedicalExam);
+
 router.patch('/edit-patient/:id', patientController.updatePatient);
 router.delete('/delpatient/:id', patientController.deletePatient);
 router.patch('/patients/:id/blacklist', patientController.toggleBlacklist);
