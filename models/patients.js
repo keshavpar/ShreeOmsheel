@@ -20,7 +20,7 @@ const MedicineSchema = new mongoose.Schema({
   expiry_date: { type: Date },
   quantity: { type: Number, default: 0 },
   
-}, { _id: false });
+});
 
 const ObservationSchema = new mongoose.Schema({
   bp: { type: String, default: '' },
@@ -39,7 +39,7 @@ const ObservationSchema = new mongoose.Schema({
     _id: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
     name: { type: String, required: true }
   }
-}, { _id: false });
+});
 
 // Medical Examination Subschema with embedded medicines
 const MedicalExamSchema = new mongoose.Schema({
