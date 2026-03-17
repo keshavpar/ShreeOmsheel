@@ -39,28 +39,115 @@ const mongoose = require('mongoose');
 const findPatientById = async (id, options = {}) => {
   const { lean = false } = options;
 
-  // Try ObjectId lookup first (all new documents)
+  // Step 1: Standard Mongoose lookup (works for ObjectId _id documents)
   let query = Patient.findById(id);
   if (lean) query = query.lean();
   let patient = await query;
   if (patient) return patient;
 
-  // Fallback: string _id lookup (legacy 2022 documents)
-  let stringQuery = Patient.findOne({ _id: id });
-  if (lean) stringQuery = stringQuery.lean();
-  return stringQuery;
+  // Step 2: Bypass Mongoose casting — use raw MongoDB driver for legacy string _id
+  const rawDoc = await Patient.collection.findOne({ _id: id });
+  if (!rawDoc) return null;
+
+  if (lean) return rawDoc;
+
+  // Hydrate into a Mongoose document so subdoc methods (.push, .id etc) work.
+  // IMPORTANT: hydrate() casts _id back to ObjectId internally.
+  // We store the original string _id on a non-schema property so safeSave
+  // can detect legacy documents and bypass Mongoose's version check.
+  const hydrated = Patient.hydrate(rawDoc);
+  hydrated.__legacyStringId = String(id);
+  return hydrated;
 };
 
 
 // ─── buildIdFilter ────────────────────────────────────────────────────────────
-// findByIdAndUpdate/Delete casts to ObjectId — fails for legacy string _ids.
-// This builds a filter that matches both ObjectId and plain string _id.
+// For findOneAndUpdate / findOneAndDelete operations.
+// Mongoose casts _id to ObjectId automatically — this bypasses that by using
+// $or with both the ObjectId-cast version AND the raw string version,
+// with casting disabled via the 'strict' option on the query.
+// For legacy string _id documents, we must use the raw collection directly
+// (see findPatientById). For update/delete we use $or as a best effort,
+// but the raw string arm works because $or short-circuits on first match.
 const buildIdFilter = (id) => {
-  const mongoose = require('mongoose');
   if (mongoose.Types.ObjectId.isValid(id)) {
-    return { $or: [{ _id: mongoose.Types.ObjectId.createFromHexString(id) }, { _id: id }] };
+    return {
+      $or: [
+        { _id: mongoose.Types.ObjectId.createFromHexString(id) },
+        { _id: id },
+      ],
+    };
   }
   return { _id: id };
+};
+
+// ─── rawUpdatePatient / rawDeletePatient ──────────────────────────────────────
+// For update and delete on legacy string _id documents, Mongoose casting
+// makes $or unreliable. These use the raw MongoDB driver directly.
+const rawFindOneAndUpdate = async (id, update, options = {}) => {
+  // Try Mongoose first (works for ObjectId documents)
+  const result = await Patient.findOneAndUpdate(
+    buildIdFilter(id),
+    update,
+    { ...options, new: true, runValidators: true }
+  );
+  if (result) return result;
+
+  // Fallback: raw driver for legacy string _id
+  const raw = await Patient.collection.findOneAndUpdate(
+    { _id: id },
+    update,
+    { returnDocument: 'after', ...options }
+  );
+  if (!raw) return null;
+  return Patient.hydrate(raw);
+};
+
+const rawFindOneAndDelete = async (id) => {
+  // Try Mongoose first
+  const result = await Patient.findOneAndDelete(buildIdFilter(id));
+  if (result) return result;
+
+  // Fallback: raw driver for legacy string _id
+  const raw = await Patient.collection.findOneAndDelete({ _id: id });
+  return raw || null;
+};
+
+// ─── isLegacyId ──────────────────────────────────────────────────────────────
+// Returns true if the _id is stored as a plain string (legacy 2022 documents).
+// Mongoose hydrate() keeps the original string _id — we check its constructor.
+const isLegacyId = (id) => {
+  return typeof id === 'string' || id?.constructor?.name === 'String';
+};
+
+// ─── safeSave ─────────────────────────────────────────────────────────────────
+// Mongoose .save() uses _id + __v for optimistic concurrency check.
+// For legacy string _id documents this always fails because Mongoose casts
+// the string _id to ObjectId in the version check query — matching nothing.
+// We detect legacy documents upfront and skip .save() entirely,
+// writing directly via the raw MongoDB driver instead.
+const safeSave = async (patient) => {
+  // __legacyStringId is set by findPatientById when a legacy string _id doc
+  // is hydrated. Mongoose hydrate() casts _id to ObjectId internally,
+  // so we cannot rely on _id type — we use this explicit marker instead.
+  const legacyId = patient.__legacyStringId;
+
+  if (legacyId) {
+    // Legacy document — bypass Mongoose .save() entirely.
+    // Mongoose version check uses ObjectId cast which misses the string _id.
+    const modifiedObj = patient.toObject();
+    const { _id, __v, createdAt, updatedAt, ...fieldsToUpdate } = modifiedObj;
+    const result = await Patient.collection.updateOne(
+      { _id: legacyId },
+      { $set: fieldsToUpdate }
+    );
+    if (result.matchedCount === 0) {
+      throw new Error(`safeSave: no document matched legacy _id "${legacyId}"`);
+    }
+  } else {
+    // New document — standard Mongoose save
+    await patient.save({ validateBeforeSave: false });
+  }
 };
 // ─── List projection ──────────────────────────────────────────────────────────────────
 // Excludes heavy embedded arrays (medicalExams, observations, reports,
@@ -200,7 +287,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     return next(new CustomError('At least vitals or findings must be provided', 400));
   }
 
-  // 🔍 Patient Lookup
+  // 🔍 Patient Lookup — handles both ObjectId _id and legacy string _id documents
   const patient = await findPatientById(req.params.id);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
@@ -223,7 +310,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
   patient.observations.push(newObservation);
 
   // 💾 Save
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
   const updatedCaps = calculateCapsules(patient);
 
   return res.status(200).json({
@@ -272,7 +359,7 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
   });
 
   // 💾 Save
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
@@ -302,7 +389,7 @@ exports.deleteObservation = asyncErrorHandler(async (req, res, next) => {
   patient.observations.pull({ _id: observationId });
 
   // 💾 Save
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
@@ -385,12 +472,8 @@ exports.updatePatient = asyncErrorHandler(async (req, res, next) => {
   }
 
   // $set ensures only provided fields are updated — all other fields are preserved
-  // findOneAndUpdate used instead of findByIdAndUpdate to support legacy string _ids
-  const updated = await Patient.findOneAndUpdate(
-    buildIdFilter(req.params.id),
-    { $set: safePayload },
-    { new: true, runValidators: true }
-  );
+  // rawFindOneAndUpdate handles both ObjectId and legacy string _id documents
+  const updated = await rawFindOneAndUpdate(req.params.id, { $set: safePayload });
 
   if (!updated) {
     return next(new CustomError('Patient not found', 404));
@@ -436,7 +519,7 @@ exports.editMedicalExam = asyncErrorHandler(async (req, res, next) => {
     }
   });
 
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
@@ -462,7 +545,7 @@ exports.deleteMedicalExam = asyncErrorHandler(async (req, res, next) => {
   // 🗑 Remove exam (Mongoose 7+ safe)
   patient.medicalExams.pull({ _id: examId });
 
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
@@ -533,7 +616,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   patient.medicalExams.push(newExam);
 
   // 💾 Save exam first so the new exam gets its _id assigned by Mongoose
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   // ── Compute and persist tapering state ────────────────────────────────────
   // calculateCapsules reads the full medicalExams array (including the one
@@ -561,7 +644,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   }
 
   // 💾 Persist computed fields — single additional save
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
@@ -589,12 +672,8 @@ exports.toggleBlacklist = asyncErrorHandler(async (req, res, next) => {
     return next(new CustomError('Invalid value for blacklist; must be boolean.', 400));
   }
 
-  // findOneAndUpdate used instead of findByIdAndUpdate to support legacy string _ids
-  const updated = await Patient.findOneAndUpdate(
-    buildIdFilter(id),
-    { $set: { blacklist } },
-    { new: true, runValidators: true }
-  );
+  // rawFindOneAndUpdate handles both ObjectId and legacy string _id documents
+  const updated = await rawFindOneAndUpdate(id, { $set: { blacklist } });
 
   if (!updated) {
     return next(new CustomError('Patient not found', 404));
@@ -727,8 +806,8 @@ exports.createPatient = asyncErrorHandler(async (req, res) => {
 
 // DELETE /delpatient/:id
 exports.deletePatient = asyncErrorHandler(async (req, res, next) => {
-  // findOneAndDelete used instead of findByIdAndDelete to support legacy string _ids
-  const deleted = await Patient.findOneAndDelete(buildIdFilter(req.params.id));
+  // rawFindOneAndDelete handles both ObjectId and legacy string _id documents
+  const deleted = await rawFindOneAndDelete(req.params.id);
   if (!deleted) return next(new CustomError('Patient not found', 404));
   res.status(204).json({ status: 'Success', data: null });
 });
@@ -773,7 +852,7 @@ exports.addReport = asyncErrorHandler(async (req, res, next) => {
   // 📎 Push new report
   patient.reports.push({ title: title.trim(), url: url.trim() });
 
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   // Return all reports with fresh signed URLs
   const signedReports = await Promise.all(
@@ -815,7 +894,7 @@ exports.deleteReport = asyncErrorHandler(async (req, res, next) => {
   // 🗑 Remove by index — splice is safe since reports have no _id
   patient.reports.splice(idx, 1);
 
-  await patient.save({ validateBeforeSave: false });
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
