@@ -28,7 +28,41 @@ const attachSignedUrls = (patients) => {
   });
 };
 
-// ─── List projection ──────────────────────────────────────────────────────────
+// ─── findPatientById ─────────────────────────────────────────────────────────
+// Legacy documents (2022 era) were stored with _id as a plain string, not
+// a MongoDB ObjectId. Patient.findById() casts to ObjectId automatically,
+// which means it returns null for those old string _id documents.
+// This utility tries ObjectId first, then falls back to string match —
+// covering both old and new documents transparently.
+const mongoose = require('mongoose');
+
+const findPatientById = async (id, options = {}) => {
+  const { lean = false } = options;
+
+  // Try ObjectId lookup first (all new documents)
+  let query = Patient.findById(id);
+  if (lean) query = query.lean();
+  let patient = await query;
+  if (patient) return patient;
+
+  // Fallback: string _id lookup (legacy 2022 documents)
+  let stringQuery = Patient.findOne({ _id: id });
+  if (lean) stringQuery = stringQuery.lean();
+  return stringQuery;
+};
+
+
+// ─── buildIdFilter ────────────────────────────────────────────────────────────
+// findByIdAndUpdate/Delete casts to ObjectId — fails for legacy string _ids.
+// This builds a filter that matches both ObjectId and plain string _id.
+const buildIdFilter = (id) => {
+  const mongoose = require('mongoose');
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    return { $or: [{ _id: mongoose.Types.ObjectId.createFromHexString(id) }, { _id: id }] };
+  }
+  return { _id: id };
+};
+// ─── List projection ──────────────────────────────────────────────────────────────────
 // Excludes heavy embedded arrays (medicalExams, observations, reports,
 // taperingStatus) — those are only fetched in getPatientById.
 // Everything else including address, createdBy, affidavit etc. is included.
@@ -127,7 +161,7 @@ exports.getAllPatients = asyncErrorHandler(async (req, res, next) => {
 
 // GET /patient/:id  — full document for detail / profile page
 exports.getPatientById = asyncErrorHandler(async (req, res, next) => {
-  const patient = await Patient.findById(req.params.id).lean();
+  const patient = await findPatientById(req.params.id, { lean: true });
 
   if (!patient) return next(new CustomError('Patient not found', 404));
 
@@ -167,7 +201,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
   }
 
   // 🔍 Patient Lookup
-  const patient = await Patient.findById(req.params.id);
+  const patient = await findPatientById(req.params.id);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
   }
@@ -206,7 +240,7 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
   const updatePayload = req.body;
 
   // 🔍 Fetch patient
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
   }
@@ -253,7 +287,7 @@ exports.deleteObservation = asyncErrorHandler(async (req, res, next) => {
   const { patientId, observationId } = req.params;
 
   // 🔍 Fetch patient
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
   }
@@ -307,7 +341,7 @@ exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
 // GET /signed-report-urls/:patientId
 exports.getSignedUrlsForReports = asyncErrorHandler(async (req, res) => {
   const { patientId } = req.params;
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
 
   if (!patient || !Array.isArray(patient.reports) || patient.reports.length === 0) {
     return res.status(404).json({ status: 'error', message: 'No reports found.' });
@@ -324,33 +358,55 @@ exports.getSignedUrlsForReports = asyncErrorHandler(async (req, res) => {
 });
 
 // PATCH /edit-patient/:id
+// ⚠️  CRITICAL: req.body is wrapped in $set — never passed raw.
+// Passing req.body directly to findByIdAndUpdate WITHOUT $set causes MongoDB
+// to treat it as a replacement document, wiping all fields not in the body.
+// The allowlist below also prevents protected fields from being overwritten.
+const PATIENT_UPDATE_ALLOWLIST = new Set([
+  'name', 'age', 'gender', 'weight', 'address', 'city', 'state',
+  'phonenumber', 'fathersname', 'occupation', 'education', 'maritalstatus',
+  'addictionperiod', 'quantity', 'image', 'affidavitDocumentUrl',
+  'dosage', 'expectedDate', 'Startdosage', 'lastModifiedBy',
+]);
+
 exports.updatePatient = asyncErrorHandler(async (req, res, next) => {
-  console.log('Updating patient with ID:', req.params.id);
-  try {
-    const updated = await Patient.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!updated) {
-      return next(new CustomError('Patient not found', 404));
+  // Strip any fields not in the allowlist — protects observations,
+  // medicalExams, createdBy, blacklist, taperingStatus etc. from being
+  // accidentally overwritten by the frontend.
+  const safePayload = {};
+  for (const [key, value] of Object.entries(req.body)) {
+    if (PATIENT_UPDATE_ALLOWLIST.has(key)) {
+      safePayload[key] = value;
     }
-
-    res.status(200).json({
-      status: 'Success',
-      data: { patient: attachSignedUrls([updated.toObject()])[0] },
-    });
-  } catch (err) {
-    console.error('Error updating patient:', err);
-    next(err);
   }
+
+  if (Object.keys(safePayload).length === 0) {
+    return next(new CustomError('No valid fields provided for update', 400));
+  }
+
+  // $set ensures only provided fields are updated — all other fields are preserved
+  // findOneAndUpdate used instead of findByIdAndUpdate to support legacy string _ids
+  const updated = await Patient.findOneAndUpdate(
+    buildIdFilter(req.params.id),
+    { $set: safePayload },
+    { new: true, runValidators: true }
+  );
+
+  if (!updated) {
+    return next(new CustomError('Patient not found', 404));
+  }
+
+  return res.status(200).json({
+    status: 'success',
+    data: { patient: attachSignedUrls([updated.toObject()])[0] },
+  });
 });
 // PATCH /edit-medical-exam/:patientId/:examId
 exports.editMedicalExam = asyncErrorHandler(async (req, res, next) => {
   const { patientId, examId } = req.params;
   const updatePayload = req.body;
 
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
   }
@@ -393,7 +449,7 @@ exports.editMedicalExam = asyncErrorHandler(async (req, res, next) => {
 exports.deleteMedicalExam = asyncErrorHandler(async (req, res, next) => {
   const { patientId, examId } = req.params;
 
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) {
     return next(new CustomError('Patient not found', 404));
   }
@@ -433,7 +489,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse,  time].every(Boolean))
+  if (![bp, pulse, nadi, jivha, time, findings].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
@@ -457,7 +513,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   }
 
   // 🔍 Patient Lookup
-  const patient = await Patient.findById(req.params.id);
+  const patient = await findPatientById(req.params.id);
   if (!patient) return next(new CustomError('Patient not found', 404));
 
   // 🧪 Compose medical exam
@@ -533,9 +589,10 @@ exports.toggleBlacklist = asyncErrorHandler(async (req, res, next) => {
     return next(new CustomError('Invalid value for blacklist; must be boolean.', 400));
   }
 
-  const updated = await Patient.findByIdAndUpdate(
-    id,
-    { blacklist },
+  // findOneAndUpdate used instead of findByIdAndUpdate to support legacy string _ids
+  const updated = await Patient.findOneAndUpdate(
+    buildIdFilter(id),
+    { $set: { blacklist } },
     { new: true, runValidators: true }
   );
 
@@ -579,7 +636,7 @@ exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
 // GET /image-url/:patientId
 exports.getImageUrl = asyncErrorHandler(async (req, res) => {
   const { patientId } = req.params;
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
 
   if (!patient || !patient.imageUrl) {
     return res.status(404).json({ status: 'error', message: 'Image not found' });
@@ -670,7 +727,8 @@ exports.createPatient = asyncErrorHandler(async (req, res) => {
 
 // DELETE /delpatient/:id
 exports.deletePatient = asyncErrorHandler(async (req, res, next) => {
-  const deleted = await Patient.findByIdAndDelete(req.params.id);
+  // findOneAndDelete used instead of findByIdAndDelete to support legacy string _ids
+  const deleted = await Patient.findOneAndDelete(buildIdFilter(req.params.id));
   if (!deleted) return next(new CustomError('Patient not found', 404));
   res.status(204).json({ status: 'Success', data: null });
 });
@@ -709,7 +767,7 @@ exports.addReport = asyncErrorHandler(async (req, res, next) => {
   }
 
   // 🔍 Patient lookup
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) return next(new CustomError('Patient not found', 404));
 
   // 📎 Push new report
@@ -746,7 +804,7 @@ exports.deleteReport = asyncErrorHandler(async (req, res, next) => {
   }
 
   // 🔍 Patient lookup
-  const patient = await Patient.findById(patientId);
+  const patient = await findPatientById(patientId);
   if (!patient) return next(new CustomError('Patient not found', 404));
 
   // 🔍 Bounds check
