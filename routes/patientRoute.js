@@ -5,7 +5,7 @@ const router = express.Router();
 
 // ─── Patient CRUD ──────────────────────────────────────────────────────────────
 router.get('/patientlist',          patientController.getAllPatients);
-router.get('/patient/:id',          patientController.getPatientById);
+router.get('/:id',                  patientController.getPatientById);
 router.post('/add-patient',         patientController.createPatient);
 router.patch('/edit-patient/:id',   patientController.updatePatient);
 router.delete('/delpatient/:id',    patientController.deletePatient);
@@ -26,6 +26,7 @@ router.delete('/delete-observation/:patientId/:observationId',        patientCon
 
 // ─── Report routes ─────────────────────────────────────────────────────────────
 router.post('/add-report/:patientId',                 patientController.addReport);
+router.patch('/update-report-url/:patientId/:reportIndex', patientController.updateReportUrl);
 router.delete('/delete-report/:patientId/:reportIndex', patientController.deleteReport);
 router.get('/signed-report-urls/:patientId',          patientController.getSignedUrlsForReports);
 

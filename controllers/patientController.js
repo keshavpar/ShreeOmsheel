@@ -272,8 +272,8 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     jivha,
     findings,
     capgiven,
+    soscap,
     time,
-    soscap
   } = req.body;
 
   // 🔒 Validation
@@ -282,7 +282,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
   }
 
   if (
-    ![bp, pulse, nadi, jivha].some(Boolean) && // allow partial vitals
+    ![bp, pulse].some(Boolean) && // allow partial vitals
     !findings
   ) {
     return next(new CustomError('At least vitals or findings must be provided', 400));
@@ -305,8 +305,8 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     jivha,
     findings,
     capgiven,
+    soscap,
     time,
-    soscap
   };
 
   patient.observations.push(newObservation);
@@ -574,7 +574,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse, time].every(Boolean))
+  if (![bp, pulse,  time].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
@@ -648,16 +648,16 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   // 💾 Persist computed fields — single additional save
   await safeSave(patient);
 
+  // All capsule/taper data is now persisted on the patient document.
+  // Return the patient-level fields directly — no separate capsuleStats object.
   return res.status(200).json({
     status: 'success',
     data: {
-      medicalExams: patient.medicalExams,
-      capsuleStats: {
-        dosage:       capsuleStats.dosage,
-        expectedDate: capsuleStats.expectedDate,
-        totalCaps:    capsuleStats.totalCaps,
-        todayCaps:    capsuleStats.todayCaps,
-      },
+      medicalExams:               patient.medicalExams,
+      dosage:                     patient.dosage,
+      expectedDate:               patient.expectedDate,
+      totalcap:                   patient.totalcap,
+      captoday:                   patient.captoday,
       taperingStatus:             patient.taperingStatus,
       patientPrescriptionCounter: patient.patientPrescriptionCounter,
     },
@@ -767,7 +767,6 @@ exports.createPatient = asyncErrorHandler(async (req, res) => {
         },
         data: {
           patientId: existingPatient._id,
-          createdAt: existingPatient.createdAt,
         },
       });
     }
@@ -834,15 +833,52 @@ exports.correctTypos = asyncErrorHandler(async (req, res) => {
 // ─── Reports ──────────────────────────────────────────────────────────────────
 
 // POST /add-report/:patientId
-// Body: { title: string, url: string }
-// url is the S3 key (not a full URL) — signed URL is returned in response
+// Step 1 of 2 — Doctor creates report with title only.
+// Lab technician uploads file and patches url separately via updateReportUrl.
+// Body: { title: string, url?: string }
 exports.addReport = asyncErrorHandler(async (req, res, next) => {
   const { patientId } = req.params;
   const { title, url } = req.body;
 
-  // 🔒 Validation
+  // 🔒 Validation — title required, url optional at this stage
   if (!title || typeof title !== 'string' || !title.trim()) {
     return next(new CustomError('Report title is required', 400));
+  }
+
+  // 🔍 Patient lookup
+  const patient = await findPatientById(patientId);
+  if (!patient) return next(new CustomError('Patient not found', 404));
+
+  // 📎 Push new report — url defaults to '' if not provided
+  patient.reports.push({
+    title:      title.trim(),
+    url:        url ? url.trim() : '',
+    uploadedAt: url ? new Date() : null,
+  });
+
+  await safeSave(patient);
+
+  return res.status(201).json({
+    status: 'success',
+    message: 'Report created successfully',
+    data: {
+      reports:     patient.reports,
+      reportIndex: patient.reports.length - 1, // index to use for updateReportUrl
+    },
+  });
+});
+
+// PATCH /update-report-url/:patientId/:reportIndex
+// Step 2 of 2 — Lab technician uploads file and patches the url.
+// Body: { url: string }  (S3 key)
+exports.updateReportUrl = asyncErrorHandler(async (req, res, next) => {
+  const { patientId, reportIndex } = req.params;
+  const { url } = req.body;
+  const idx = parseInt(reportIndex, 10);
+
+  // 🔒 Validation
+  if (isNaN(idx) || idx < 0) {
+    return next(new CustomError('Invalid report index', 400));
   }
   if (!url || typeof url !== 'string' || !url.trim()) {
     return next(new CustomError('Report url (S3 key) is required', 400));
@@ -852,24 +888,29 @@ exports.addReport = asyncErrorHandler(async (req, res, next) => {
   const patient = await findPatientById(patientId);
   if (!patient) return next(new CustomError('Patient not found', 404));
 
-  // 📎 Push new report
-  patient.reports.push({ title: title.trim(), url: url.trim() });
+  // 🔍 Bounds check
+  if (idx >= patient.reports.length) {
+    return next(new CustomError('Report not found at given index', 404));
+  }
+
+  // 🔗 Patch url and set uploadedAt timestamp
+  patient.reports[idx].url        = url.trim();
+  patient.reports[idx].uploadedAt = new Date();
 
   await safeSave(patient);
 
-  // Return all reports with fresh signed URLs
-  const signedReports = await Promise.all(
-    patient.reports.map(async (r) => ({
-      title:     r.title,
-      url:       r.url,
-      signedUrl: await getSignedUrlPromise(r.url, 3600),
-    }))
-  );
+  // Return signed URL for immediate use
+  const signedUrl = await getSignedUrlPromise(url.trim(), 3600);
 
-  return res.status(201).json({
+  return res.status(200).json({
     status: 'success',
-    message: 'Report added successfully',
-    data: { reports: signedReports },
+    message: 'Report url updated successfully',
+    data: {
+      report: {
+        ...patient.reports[idx].toObject?.() ?? patient.reports[idx],
+        signedUrl,
+      },
+    },
   });
 });
 
@@ -904,4 +945,4 @@ exports.deleteReport = asyncErrorHandler(async (req, res, next) => {
     message: 'Report deleted successfully',
     data: { reports: patient.reports },
   });
-});
+}); 

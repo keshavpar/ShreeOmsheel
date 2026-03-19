@@ -61,9 +61,12 @@ const MedicalExamSchema = new mongoose.Schema({
 });
 
 // Report Subschema
+// url is optional at creation — doctor adds title first,
+// lab technician uploads the file and patches url later.
 const ReportSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  url:   { type: String, required: true }
+  title:     { type: String, required: true },
+  url:       { type: String, default: '' },   // empty until lab uploads
+  uploadedAt:{ type: Date,   default: null },  // set when url is added
 }, { _id: false });
 
 // ─── Tapering Status Subschema ────────────────────────────────────────────────
@@ -89,13 +92,17 @@ const PatientSchema = new mongoose.Schema({
     minlength: 12,
     trim: true
   },
-  name:            { type: String, required: true, trim: true },
+  // index: true on name — speeds up case-insensitive regex on list queries.
+  // Note: a regex without ^ anchor still scans but index reduces candidate set
+  // significantly on large collections vs a full collection scan.
+  name:            { type: String, required: true, trim: true, index: true },
   age:             { type: Number, default: 20 },
   gender:          { type: String, enum: ['Male', 'Female', 'Other'], default: 'Male' },
   weight:          { type: Number },
   address:         { type: String, trim: true },
-  city:            { type: String, trim: true },
-  state:           { type: String, trim: true },
+  // index: true on city + state — used in getAllPatients filter
+  city:            { type: String, trim: true, index: true },
+  state:           { type: String, trim: true, index: true },
   phonenumber:     { type: String, trim: true },
   fathersname:     { type: String, trim: true },
   occupation:      { type: String, trim: true },
@@ -137,5 +144,16 @@ const PatientSchema = new mongoose.Schema({
     role: { type: String, enum: ['admin', 'doctor', 'staff'] }
   },
 }, { timestamps: true });
+
+// ─── Compound indexes ──────────────────────────────────────────────────────────
+// createdAt DESC — powers date range filter + default sort on list page
+PatientSchema.index({ createdAt: -1 });
+
+// city + createdAt — covers the most common combined query: filter by city, sort latest first
+PatientSchema.index({ city: 1, createdAt: -1 });
+
+// blacklist — used when querying active (non-blacklisted) patients
+PatientSchema.index({ blacklist: 1 });
+// ──────────────────────────────────────────────────────────────────────────────
 
 module.exports = mongoose.model('Patients', PatientSchema);
