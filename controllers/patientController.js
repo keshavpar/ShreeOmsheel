@@ -273,6 +273,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     findings,
     capgiven,
     time,
+    soscap
   } = req.body;
 
   // 🔒 Validation
@@ -305,6 +306,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     findings,
     capgiven,
     time,
+    soscap
   };
 
   patient.observations.push(newObservation);
@@ -572,7 +574,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse, nadi, jivha, time, findings].every(Boolean))
+  if (![bp, pulse, time].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
@@ -765,6 +767,7 @@ exports.createPatient = asyncErrorHandler(async (req, res) => {
         },
         data: {
           patientId: existingPatient._id,
+          createdAt: existingPatient.createdAt,
         },
       });
     }
