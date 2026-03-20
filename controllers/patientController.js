@@ -409,22 +409,36 @@ exports.getPatientCount = asyncErrorHandler(async (req, res) => {
 // GET /todaypatients
 exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Start of today
-
+  today.setHours(0, 0, 0, 0);
+ 
   const nextDay = new Date(today);
-  nextDay.setDate(today.getDate() + 1); // Start of next day
-
+  nextDay.setDate(today.getDate() + 1);
+ 
+  // Uses same projection as getAllPatients — excludes medicalExams and observations
+  // which can be large. Full document is available via getPatientById.
   const patients = await Patient.find({
-    createdAt: { $gte: today, $lt: nextDay }
-  });
-
-  const formatted = attachSignedUrls(patients.map(p => p.toObject()));
-
+  createdAt: { $gte: today, $lt: nextDay }
+})
+.select(`
+  aadharnumber name age gender weight address city state phonenumber
+  fathersname occupation education maritalstatus addictionperiod quantity image
+  totalcap captoday Startdosage dosage lastVisitedDate taperingStatus
+  affidavitDocumentUrl patientPrescriptionCounter blacklist createdBy
+  reports createdAt updatedAt
+`)
+.lean();
+ 
+  const formatted = attachSignedUrls(patients);
+ 
   res.status(200).json({
-    status: 'Success',
-    data: { patients: formatted }
+    status: 'success',
+    data: {
+      patients: formatted,
+      count: formatted.length,
+    },
   });
 });
+ 
 
 
 // GET /signed-report-urls/:patientId
