@@ -352,6 +352,7 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
     'capgiven',
     'time',
     'doctor',
+    'soscap',
   ];
 
   allowedFields.forEach((field) => {
