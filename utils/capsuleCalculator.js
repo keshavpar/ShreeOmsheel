@@ -132,9 +132,10 @@ function calculateCapsules(patient) {
   let todayCaps = 0;
 
   // ── Observations ───────────────────────────────────────────────────────────
+  // capgiven = regular capsules | soscap = SOS capsules — both count toward totals
   if (Array.isArray(patient.observations)) {
     for (const obs of patient.observations) {
-      const cap = obs.capgiven || 0;
+      const cap = (obs.capgiven || 0) + (obs.soscap || 0);
       totalCaps += cap;
       if (obs.time && isSameDay(new Date(obs.time), today)) {
         todayCaps += cap;

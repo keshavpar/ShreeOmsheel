@@ -14,8 +14,10 @@ const attachSignedUrls = (patients) => {
   return patients.map((p) => {
     if (Array.isArray(p.reports)) {
       p.reports = p.reports.map((r) => ({
-        ...r,
-        signedUrl: r.url ? generateSignedUrl(r.url) : null,
+        title:      r.title,
+        url:        r.url        ?? '',
+        uploadedAt: r.uploadedAt ?? null,
+        signedUrl:  r.url ? generateSignedUrl(r.url) : null,
       }));
     }
     if (p.affidavitDocumentUrl) {
@@ -150,9 +152,8 @@ const safeSave = async (patient) => {
   }
 };
 // ─── List projection ──────────────────────────────────────────────────────────────────
-// Excludes heavy embedded arrays (medicalExams, observations, reports,
-// taperingStatus) — those are only fetched in getPatientById.
-// Everything else including address, createdBy, affidavit etc. is included.
+// Excludes only heavy embedded arrays: medicalExams and observations.
+// Everything else including reports, taperingStatus, address, createdBy etc. is included.
 const PATIENT_LIST_PROJECTION = {
   name:                       1,
   age:                        1,
@@ -176,6 +177,7 @@ const PATIENT_LIST_PROJECTION = {
   captoday:                   1,
   Startdosage:                1,
   lastVisitedDate:            1,
+  taperingStatus:             1,
   blacklist:                  1,
   affidavitDocumentUrl:       1,
   patientPrescriptionCounter: 1,
@@ -183,6 +185,7 @@ const PATIENT_LIST_PROJECTION = {
   lastModifiedBy:             1,
   createdAt:                  1,
   updatedAt:                  1,
+  reports:                    1,
 };
 
 // GET /patientlist
@@ -313,13 +316,24 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
 
   // 💾 Save
   await safeSave(patient);
-  const updatedCaps = calculateCapsules(patient);
+
+  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // calculateCapsules sums capgiven across all observations + medicalExams.
+  // todayCaps uses obs.time to determine if the entry is from today —
+  // so only entries with time = today contribute to captoday.
+  const capsuleStats = calculateCapsules(patient);
+  patient.totalcap = capsuleStats.totalCaps;
+  patient.captoday = capsuleStats.todayCaps;
+
+  // 💾 Persist updated totalcap + captoday back to the document
+  await safeSave(patient);
 
   return res.status(200).json({
     status: 'success',
     data: {
       observations: patient.observations,
-      capsuleStats: updatedCaps,
+      totalcap:     patient.totalcap,
+      captoday:     patient.captoday,
     },
   });
 });
@@ -350,9 +364,9 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
     'jivha',
     'findings',
     'capgiven',
+    'soscap',
     'time',
     'doctor',
-    'soscap',
   ];
 
   allowedFields.forEach((field) => {
@@ -411,26 +425,20 @@ exports.getPatientCount = asyncErrorHandler(async (req, res) => {
 exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
- 
+
   const nextDay = new Date(today);
   nextDay.setDate(today.getDate() + 1);
- 
+
   // Uses same projection as getAllPatients — excludes medicalExams and observations
   // which can be large. Full document is available via getPatientById.
   const patients = await Patient.find({
-  createdAt: { $gte: today, $lt: nextDay }
-})
-.select(`
-  aadharnumber name age gender weight address city state phonenumber
-  fathersname occupation education maritalstatus addictionperiod quantity image
-  totalcap captoday Startdosage dosage lastVisitedDate taperingStatus
-  affidavitDocumentUrl patientPrescriptionCounter blacklist createdBy
-  reports createdAt updatedAt
-`)
-.lean();
- 
+    createdAt: { $gte: today, $lt: nextDay }
+  })
+    .select(PATIENT_LIST_PROJECTION)
+    .lean();
+
   const formatted = attachSignedUrls(patients);
- 
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -439,7 +447,6 @@ exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
     },
   });
 });
- 
 
 
 // GET /signed-report-urls/:patientId
@@ -589,7 +596,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse,  time].every(Boolean))
+  if (![bp, pulse, time].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
@@ -960,4 +967,4 @@ exports.deleteReport = asyncErrorHandler(async (req, res, next) => {
     message: 'Report deleted successfully',
     data: { reports: patient.reports },
   });
-}); 
+});
