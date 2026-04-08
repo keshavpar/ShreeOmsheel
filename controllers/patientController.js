@@ -963,12 +963,18 @@ exports.updateReportUrl = asyncErrorHandler(async (req, res, next) => {
   // Return signed URL for immediate use
   const signedUrl = await getSignedUrlPromise(url.trim(), 3600);
 
+  // patient.reports[idx] may be a plain object (legacy doc) or Mongoose subdoc.
+  // Normalise to plain object before spreading — toObject() is not guaranteed.
+  const reportObj = typeof patient.reports[idx].toObject === 'function'
+    ? patient.reports[idx].toObject()
+    : { ...patient.reports[idx] };
+
   return res.status(200).json({
     status: 'success',
     message: 'Report url updated successfully',
     data: {
       report: {
-        ...patient.reports[idx].toObject?.() ?? patient.reports[idx],
+        ...reportObj,
         signedUrl,
       },
     },
