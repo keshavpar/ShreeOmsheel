@@ -285,7 +285,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
   }
 
   if (
-    ![bp, pulse].some(Boolean) && // allow partial vitals
+    ![bp, pulse, nadi, jivha].some(Boolean) && // allow partial vitals
     !findings
   ) {
     return next(new CustomError('At least vitals or findings must be provided', 400));
@@ -364,7 +364,6 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
     'jivha',
     'findings',
     'capgiven',
-    'soscap',
     'time',
     'doctor',
   ];
@@ -378,10 +377,19 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
   // 💾 Save
   await safeSave(patient);
 
+  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // capgiven or soscap may have changed — recalculate from scratch
+  const editObsCaps = calculateCapsules(patient);
+  patient.totalcap = editObsCaps.totalCaps;
+  patient.captoday = editObsCaps.todayCaps;
+  await safeSave(patient);
+
   return res.status(200).json({
     status: 'success',
     data: {
       observation,
+      totalcap: patient.totalcap,
+      captoday: patient.captoday,
     },
   });
 });
@@ -408,9 +416,20 @@ exports.deleteObservation = asyncErrorHandler(async (req, res, next) => {
   // 💾 Save
   await safeSave(patient);
 
+  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // Removing an observation reduces totalcap — recalculate from scratch
+  const delObsCaps = calculateCapsules(patient);
+  patient.totalcap = delObsCaps.totalCaps;
+  patient.captoday = delObsCaps.todayCaps;
+  await safeSave(patient);
+
   return res.status(200).json({
     status: 'success',
     message: 'Observation deleted successfully',
+    data: {
+      totalcap: patient.totalcap,
+      captoday: patient.captoday,
+    },
   });
 });
 
@@ -545,10 +564,19 @@ exports.editMedicalExam = asyncErrorHandler(async (req, res, next) => {
 
   await safeSave(patient);
 
+  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // capgiven on the exam may have changed — recalculate from scratch
+  const editExamCaps = calculateCapsules(patient);
+  patient.totalcap = editExamCaps.totalCaps;
+  patient.captoday = editExamCaps.todayCaps;
+  await safeSave(patient);
+
   return res.status(200).json({
     status: 'success',
     data: {
       medicalExam: exam,
+      totalcap:    patient.totalcap,
+      captoday:    patient.captoday,
     },
   });
 });
@@ -571,9 +599,20 @@ exports.deleteMedicalExam = asyncErrorHandler(async (req, res, next) => {
 
   await safeSave(patient);
 
+  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // Removing an exam reduces totalcap — recalculate from scratch
+  const delExamCaps = calculateCapsules(patient);
+  patient.totalcap = delExamCaps.totalCaps;
+  patient.captoday = delExamCaps.todayCaps;
+  await safeSave(patient);
+
   return res.status(200).json({
     status: 'success',
     message: 'Medical exam deleted successfully',
+    data: {
+      totalcap: patient.totalcap,
+      captoday: patient.captoday,
+    },
   });
 });
 
@@ -596,7 +635,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse, time].every(Boolean))
+  if (![bp, pulse, nadi, jivha, time, findings].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
