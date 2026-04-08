@@ -111,7 +111,7 @@ const PatientSchema = new mongoose.Schema({
   addictionperiod: { type: String, trim: true },
   quantity:        { type: String, trim: true },
   image:           { type: String, default: '' },
-
+  prakruti:         { type: String, trim: true },
   observations: { type: [ObservationSchema], default: [] },
   medicalExams: { type: [MedicalExamSchema], default: [] },
 
