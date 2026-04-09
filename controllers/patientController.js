@@ -635,7 +635,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
   if (!doctor?.name || !doctor?._id)
     return next(new CustomError('Invalid doctor data', 400));
 
-  if (![bp, pulse, nadi, jivha, time, findings].every(Boolean))
+  if (![bp, pulse, nadi, time].every(Boolean))
     return next(new CustomError('Missing required fields', 400));
 
   if (!Array.isArray(medicines))
