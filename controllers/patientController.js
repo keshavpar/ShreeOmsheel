@@ -277,6 +277,7 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
     capgiven,
     soscap,
     time,
+   
   } = req.body;
 
   // 🔒 Validation
@@ -366,6 +367,7 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
     'capgiven',
     'time',
     'doctor',
+    'soscap'
   ];
 
   allowedFields.forEach((field) => {

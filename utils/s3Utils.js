@@ -1,5 +1,11 @@
 const AWS = require('aws-sdk');
-const s3 = new AWS.S3();
+require('dotenv').config();
+
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY,
+  secretAccessKey: process.env.SECRET_STR,
+  region: process.env.AWS_REGION,
+});
 
 const getSignedUrl = (key, expiresInSeconds = 300) => {
   if (!key) return null; // handle empty keys gracefully
