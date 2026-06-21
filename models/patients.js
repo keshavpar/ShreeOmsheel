@@ -1,223 +1,159 @@
 const mongoose = require('mongoose');
+mongoose.set('strictQuery', false);
 
-const patients = new mongoose.Schema({     
-    aadharnumber: {
-        type: String,
-        required: [true, 'Enter the Aadhar Number'],
-        trim: true, // Trim the leading and back whitespaces
-        maxlength: [12, 'Aadhar Number must be of 12 digits'],
-        minlength: [12, 'Aadhar Number must be of 12 digits']
-    },
-    age: {
-        type: Number,
-        default: 20
-    },
-    name: {
-        type: String,
-        required: [true, 'Enter Patient Name!'],
-        trim: true,
-    },
-    address: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    fathersname: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    occupation: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    /* bp: {
-        type: String,
-        default: 0
-    },
-    pulse: {
-        type: Number,
-        default: 0
-    },
-    */
-    education: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    city: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    state: {
-        type: String,
-        trim: true,
-        default: ''
-    },
-    addictionperiod: {
-        type: String,
-        default: ''
-    },
-    quantity: {
-        type: Number,
-        default: 0
-    },
-    maritalstatus: {
-        type: String,
-        default: ''
-    },
-    weight:{ 
-        type: Number,
-        default: ''
-    },
-    gender:{
-        type: String,
-        default:' Male'
-    },
-    /*
-     jivha: {
-        type: String,
-        default: ''
-    },
-    Nadi: {
-        type: String,
-        default: ''
-    },
-    */
-    Date: {
-        type: Date,
-        default: Date.now()
-    },
-    totalcap: {
-        type: Number,
-        default: 0
-    },
-    captoday: {
-        type: Number,
-        default: 0
-    },
-    Startdosage: {
-        type: Number,
-        default: 0
-    },
-    expectedDate: {
-        type: Date,
-        default: Date.now()
-    },
-    phonenumber: {
-        type: String,
-        trime: true
-    },
-    price: {// Total Price of all Meds : { (Qt0 * Prc0) + (Qt1 * Prc1) + ... }
-        type: Number,// OR Individual Price of meds [ Prc0, Prc1, ... ]
-        default: 0 // OR Individual Price of all Meds (Price * Quants) [ (Qt0 * Prc0), (Qt1 * Prc1), .. ]
-    }, 
-    quantitymed: {// Total Quantity of all Meds : { Qt0 + Qt1 + .. }
-        type: Number,// OR Individual Quantity of meds [ Qt0, Qt1, ... ]
-        default: 0
-    }, 
-    medicinelist:{
-        type: [
-            {
-                name: {
-                    type:String,
-                    required: [true, 'Enter the medicine Name'],
-                    default:''
-                },
-                opiumated: {
-                    type:Boolean,
-                    default:false
-                },
-                description: {
-                    type:String,
-                    default:''
-                },
-                batch_no: {
-                    type:Number,
-                    default:0
-                },
-                price: {
-                    type:Number,
-                    defualt:0
-                },
-                cgst: {
-                    type:Number,
-                    default:0
-                },
-                sgst: {
-                    type:Number,
-                    default:0
-                },
-                mfg_date: {
-                    type:String,
-                    default:Date.now
-                },
-                expiry_date: {
-                    type:String,
-                    default:''
-                },
-                quantity: {
-                    type:Number,
-                    default:0
-                }
-            }
-        ]
-    },
-    medicalExams: {
-        type: [
-            {
-                Bp: {
-                    type:String,
-                    default:""
-                },
-                Pulse: {
-                    type:String,
-                    default:""
-                },
-                Nadi: {
-                    type:String,
-                    default:""
-                },
-                Jivha: {
-                    type:String,
-                    default:""
-                },
-                time: {
-                    type:Date,
-                    default:Date.now
-                },
-                doctorName: {
-                    type:String,
-                    default:""
-                },
-                capgiven: {
-                    type:Number,
-                    default:0
-                },
-                findings: {
-                    type:String,
-                    default:""
-                }
-            }
-        ]
-    }
+const TaperingEntrySchema = new mongoose.Schema({
+  date:      { type: Date,   required: true },
+  morning:   { type: Number, required: true },
+  evening:   { type: Number, required: true },
+  // null = not yet visited | Date = exact timestamp patient came in
+  // !!visitedAt → did they visit? | visitedAt vs date → were they on time?
+  visitedAt: { type: Date,   default: null  },
+}, { _id: false });
+
+// Medicine Subschema
+const MedicineSchema = new mongoose.Schema({
+  name:        { type: String,  required: true, trim: true },
+  opiumated:   { type: Boolean, default: false },
+  description: { type: String,  default: '', trim: true },
+  batch_no:    { type: String,  default: '' },
+  price:       { type: Number,  default: 0 },
+  cgst:        { type: Number,  default: 0 },
+  sgst:        { type: Number,  default: 0 },
+  mfg_date:    { type: Date },
+  expiry_date: { type: Date },
+  quantity:    { type: Number,  default: 0 },
 });
 
+const ObservationSchema = new mongoose.Schema({
+  bp:       { type: String, default: '' },
+  pulse:    { type: String, default: '' },
+  nadi:     { type: String, default: '' },
+  dosh:     { type: String, default: '' },
+  bal:      { type: String, default: '' },
+  jivha:    { type: String, default: '' },
+  findings: { type: String, default: '', trim: true },
+  capgiven: { type: Number, default: 0 },
+  soscap:   { type: Number, default: 0 },
+  time:     { type: Date,   default: Date.now },
+  doctor: {
+    _id:  { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
+    name: { type: String, required: true }
+  }
+});
 
-module.exports = mongoose.model("Patient",patients);    
+// Medical Examination Subschema with embedded medicines
+const MedicalExamSchema = new mongoose.Schema({
+  bp:       { type: String, default: '' },
+  pulse:    { type: String, default: '' },
+  nadi:     { type: String, default: '' },
+  dosh:     { type: String, default: '' },
+  bal:      { type: String, default: '' },
+  jivha:    { type: String, default: '' },
+  time:     { type: Date,   default: Date.now },
+  findings: { type: String, default: '', trim: true },
+  capgiven: { type: Number, default: 0 },
+  medicines: { type: [MedicineSchema], default: [] },
+  doctor: {
+    _id:  { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
+    name: { type: String, required: true }
+  },
+  tapering: { type: [TaperingEntrySchema], default: [] }
+});
 
-// Total Price if needed { (Qt0 * Prc0) + (Qt1 * Prc1) + .. } can be done by post-save hook
+// Report Subschema
+// url is optional at creation — doctor adds title first,
+// lab technician uploads the file and patches url later.
+const ReportSchema = new mongoose.Schema({
+  title:     { type: String, required: true },
+  url:       { type: String, default: '' },   // empty until lab uploads
+  uploadedAt:{ type: Date,   default: null },  // set when url is added
+}, { _id: false });
 
-/*
+// ─── Tapering Status Subschema ────────────────────────────────────────────────
+// Tracks which exam + which step in that exam's tapering[] the patient is on.
+// Updated by the controller every time a new medicalExam is saved or
+// a staff member marks a visit as completed.
+const TaperingStatusSchema = new mongoose.Schema({
+  // Which medicalExam this active taper belongs to
+  examId:      { type: mongoose.Schema.Types.ObjectId, required: true },
+  // Index into that exam's tapering[] array — current active step
+  stepIndex:   { type: Number, default: 0, min: 0 },
+  // true when stepIndex has passed the last entry in tapering[]
+  isCompleted: { type: Boolean, default: false },
+}, { _id: false });
 
-  Using References to seperate collections instead of embedding the collections into one is actually a tradeoff between Time and Space
-  If there will be not more than 15 - 20 Medicines or 15 - 20 medExams. We should go for embedding all into Patient Model.
-  Querying through referenced structure takes more time. 
-  Embedding into one takes more space. (But in mongodb we have a limit of one document of aprx 15Mb)
-  
+// Patient Main Schema
+const PatientSchema = new mongoose.Schema({
+  aadharnumber: {
+    type: String,
+    required: true,
+    unique: true,
+    maxlength: 12,
+    minlength: 12,
+    trim: true
+  },
+  // index: true on name — speeds up case-insensitive regex on list queries.
+  // Note: a regex without ^ anchor still scans but index reduces candidate set
+  // significantly on large collections vs a full collection scan.
+  name:            { type: String, required: true, trim: true, index: true },
+  age:             { type: Number, default: 20 },
+  gender:          { type: String, enum: ['Male', 'Female', 'Other'], default: 'Male' },
+  weight:          { type: Number },
+  address:         { type: String, trim: true },
+  // index: true on city + state — used in getAllPatients filter
+  city:            { type: String, trim: true, index: true },
+  state:           { type: String, trim: true, index: true },
+  phonenumber:     { type: String, trim: true },
+  fathersname:     { type: String, trim: true },
+  occupation:      { type: String, trim: true },
+  education:       { type: String, trim: true },
+  maritalstatus:   { type: String, trim: true },
+  addictionperiod: { type: String, trim: true },
+  quantity:        { type: String, trim: true },
+  image:           { type: String, default: '' },
+  prakruti:         { type: String, trim: true },
+  observations: { type: [ObservationSchema], default: [] },
+  medicalExams: { type: [MedicalExamSchema], default: [] },
 
-  If there's not a huge number of medExams or meds, we should embed it into one collection. For which querying will be optimized
+  totalcap:     { type: Number, default: 0 },
+  captoday:     { type: Number, default: 0 },
+  Startdosage:  { type: Number, default: 0 },
 
-*/
+  // ── Active taper tracking (auto-computed by controller on exam save) ────────
+  // Current dosage = morning + evening of the active tapering step
+  dosage:       { type: Number, default: 0 },
+  // Next visit date = tapering[stepIndex + 1].date of the active tapering step
+  expectedDate: { type: Date },
+  // When the patient actually last walked in (set on visit mark)
+  lastVisitedDate: { type: Date, default: null },
+  // Pointer to the active exam + step — the single source of truth
+  taperingStatus: { type: TaperingStatusSchema, default: null },
+  // ────────────────────────────────────────────────────────────────────────────
+
+  reports:              { type: [ReportSchema], default: [] },
+  affidavitDocumentUrl: { type: String,  default: '' },
+  patientPrescriptionCounter: { type: Number, default: 0 },
+  blacklist:            { type: Boolean, default: false },
+
+  createdBy: {
+    _id:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    role: { type: String, enum: ['admin', 'doctor', 'staff'], required: true }
+  },
+  lastModifiedBy: {
+    _id:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    role: { type: String, enum: ['admin', 'doctor', 'staff'] }
+  },
+}, { timestamps: true });
+
+// ─── Compound indexes ──────────────────────────────────────────────────────────
+// createdAt DESC — powers date range filter + default sort on list page
+PatientSchema.index({ createdAt: -1 });
+
+// city + createdAt — covers the most common combined query: filter by city, sort latest first
+PatientSchema.index({ city: 1, createdAt: -1 });
+
+// blacklist — used when querying active (non-blacklisted) patients
+PatientSchema.index({ blacklist: 1 });
+// ──────────────────────────────────────────────────────────────────────────────
+
+module.exports = mongoose.model('Patients', PatientSchema);
