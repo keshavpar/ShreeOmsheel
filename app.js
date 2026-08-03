@@ -2,6 +2,7 @@ const express = require('express');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const cors = require('cors');
+const compression = require('compression');
 const logger = require('./utils/logger');
 
 
@@ -18,6 +19,12 @@ const appointmentRoutes = require('./routes/appointmentRoutes');
 const { swaggerUi, swaggerSpec } = require('./swagger');
 
 const app = express();
+
+// gzip responses. Patient list payloads are repetitive JSON and compress ~75%.
+// Registered first so it covers every route below, including /api-docs.
+// Clients that don't send Accept-Encoding are served uncompressed as before.
+app.use(compression());
+
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use(express.json());
 app.use(helmet());
