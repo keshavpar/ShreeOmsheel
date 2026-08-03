@@ -10,7 +10,17 @@ const logger = createLogger({
   ),
   transports: [
     new transports.Console(),
-    new transports.File({ filename: 'logs/app.log' })  // Stores logs in logs/app.log
+    // Bounded at 10 MB x 5 files = 50 MB ceiling. Previously unbounded, which
+    // meant the disk filled until the process died.
+    // tailable: true keeps logs/app.log as the *current* file (older data rolls
+    // into app1.log, app2.log...), so anything already tailing that exact path
+    // continues to work unchanged.
+    new transports.File({
+      filename: 'logs/app.log',
+      maxsize:  10 * 1024 * 1024,
+      maxFiles: 5,
+      tailable: true,
+    }),
   ],
 });
 
