@@ -223,6 +223,11 @@ exports.getAllPatients = asyncErrorHandler(async (req, res, next) => {
   const skip       = (pageNumber - 1) * pageLimit;
 
   // ── Parallel fetch: data + total count in one round trip ──────────────────
+  // Unfiltered list requests (the common case) use estimatedDocumentCount,
+  // which reads collection metadata in O(1) instead of scanning. countDocuments
+  // is still used whenever a filter is present, where an exact count matters.
+  const hasFilter = Object.keys(filter).length > 0;
+
   const [patients, totalCount] = await Promise.all([
     Patient.find(filter)
       .select(PATIENT_LIST_PROJECTION)
@@ -230,7 +235,9 @@ exports.getAllPatients = asyncErrorHandler(async (req, res, next) => {
       .skip(skip)
       .limit(pageLimit)
       .lean(),
-    Patient.countDocuments(filter),
+    hasFilter
+      ? Patient.countDocuments(filter)
+      : Patient.estimatedDocumentCount(),
   ]);
 
   // ── Attach signed URLs ─────────────────────────────────────────────────────
@@ -438,7 +445,9 @@ exports.deleteObservation = asyncErrorHandler(async (req, res, next) => {
 
 // GET /countpatients
 exports.getPatientCount = asyncErrorHandler(async (req, res) => {
-  const count = await Patient.countDocuments();
+  // estimatedDocumentCount reads collection metadata in O(1); countDocuments
+  // with an empty filter scans. Identical result for an unfiltered count.
+  const count = await Patient.estimatedDocumentCount();
   res.status(200).json({ status: 'Success', data: { count } });
 });
 
@@ -473,7 +482,8 @@ exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
 // GET /signed-report-urls/:patientId
 exports.getSignedUrlsForReports = asyncErrorHandler(async (req, res) => {
   const { patientId } = req.params;
-  const patient = await findPatientById(patientId);
+  // Read-only: skip Mongoose document hydration entirely.
+  const patient = await findPatientById(patientId, { lean: true });
 
   if (!patient || !Array.isArray(patient.reports) || patient.reports.length === 0) {
     return res.status(404).json({ status: 'error', message: 'No reports found.' });
@@ -780,7 +790,8 @@ exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
 // GET /image-url/:patientId
 exports.getImageUrl = asyncErrorHandler(async (req, res) => {
   const { patientId } = req.params;
-  const patient = await findPatientById(patientId);
+  // Read-only: skip Mongoose document hydration entirely.
+  const patient = await findPatientById(patientId, { lean: true });
 
   if (!patient || !patient.imageUrl) {
     return res.status(404).json({ status: 'error', message: 'Image not found' });
