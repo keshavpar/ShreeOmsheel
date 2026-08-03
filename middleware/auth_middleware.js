@@ -20,7 +20,10 @@ module.exports = async function protect(req, res, next) {
     const decoded = jwt.verify(token, process.env.SECRET_STR);
 
     // 3. Check if user still exists
-    const currentUser = await User.findById(decoded.id);
+    // Projection is deliberate: attendance[] and dailyWork[] grow without bound
+    // (~86 KB per user per year) and were being loaded on every single request
+    // just to read isActive. req.user is only ever read for _id and role.
+    const currentUser = await User.findById(decoded.id).select('name email role isActive');
     if (!currentUser || !currentUser.isActive) {
       return next(new CustomError('User no longer exists or is inactive.', 401));
     }
