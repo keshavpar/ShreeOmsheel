@@ -87,19 +87,26 @@ exports.login = asyncErrorHandler(async (req, res, next) => {
 
 
 // Mark attendance (utility)
+// Single atomic op. The previous read-modify-write loaded the whole user
+// document (attendance[] grows ~86 KB/year) and rewrote it in full on every
+// login. The $not/$elemMatch guard replicates the old "once per calendar day"
+// check server-side, so a double login can no longer race in two entries.
 exports.markAttendance = async (userId) => {
   try {
-    const today = new Date().toDateString();
-    const user = await User.findById(userId);
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayStart.getDate() + 1);
 
-    const alreadyMarked = user.attendance.some(
-      (entry) => new Date(entry.date).toDateString() === today
+    await User.updateOne(
+      {
+        _id: userId,
+        attendance: {
+          $not: { $elemMatch: { date: { $gte: dayStart, $lt: dayEnd } } },
+        },
+      },
+      { $push: { attendance: { date: new Date(), status: 'present' } } }
     );
-
-    if (!alreadyMarked) {
-      user.attendance.push({ date: new Date(), status: 'present' });
-      await user.save({ validateBeforeSave: false });
-    }
   } catch (err) {
     console.error('Error marking attendance:', err);
     throw err;
