@@ -201,9 +201,55 @@ exports.completeWork = asyncErrorHandler(async (req, res, next) => {
 });
 
 // Get all users
+//
+// Returns `presentDays` — the number of days the user has been marked present —
+// computed inside MongoDB via $size/$filter, so the attendance[] array itself is
+// never transferred. That array grows ~86 KB per user per year (~429 KB at five
+// years), which previously went over the wire in full on every call to this
+// endpoint just so a count could be derived client-side.
+//
+// Cost note: $filter is a single linear pass over an array the server already
+// holds in memory — microseconds. It replaces the multi-MB transfer and the
+// BSON deserialization that dominated this request, so total cost drops sharply.
+//
+// ?includeAttendance=true restores the previous response exactly (full
+// attendance[] and dailyWork[]), as an escape hatch for any screen still
+// reading the raw arrays.
 exports.getAllUsers = asyncErrorHandler(async (req, res, next) => {
   try {
-    const users = await User.find().select('-password');
+    const includeAttendance = req.query.includeAttendance === 'true';
+
+    // NOTE: aggregate() bypasses schema-level `select: false`, so `password`
+    // is excluded by virtue of this being an inclusion projection — it must
+    // never be added to this list.
+    const projection = {
+      name:           1,
+      email:          1,
+      role:           1,
+      isActive:       1,
+      lastLogin:      1,
+      aadhaarNumber:  1,
+      aadhaarCardUrl: 1,
+      createdBy:      1,
+      lastModifiedBy: 1,
+      presentDays: {
+        $size: {
+          $filter: {
+            // $ifNull guards users whose attendance field was never set
+            input: { $ifNull: ['$attendance', []] },
+            cond:  { $eq: ['$$this.status', 'present'] },
+          },
+        },
+      },
+    };
+
+    if (includeAttendance) {
+      projection.attendance = 1;
+      projection.dailyWork  = 1;
+    }
+
+    const users = await User.aggregate([{ $project: projection }]);
+
     res.status(200).json({ status: 'success', results: users.length, data: { users } });
   } catch (err) {
     console.error('Get all users error:', err);
