@@ -5,12 +5,38 @@ require('dotenv').config();
 
 // Single shared client for the whole process. s3controller previously built a
 // second, identically-configured client; it now imports this one.
-// NOTE: secretAccessKey reads SECRET_STR because .env defines that name twice
-// and the AWS value wins. Untouched here on purpose — splitting the two
-// variables invalidates every issued JWT and is scheduled as Phase 2.3.
+//
+// ── Credential decoupling ───────────────────────────────────────────────────
+// .env currently defines SECRET_STR twice: once as the JWT signing secret and
+// again, further down, as the AWS secret access key. dotenv keeps the last
+// value, so the AWS key silently wins and JWTs are signed with it. The two
+// concerns are entangled: rotating either one breaks the other.
+//
+// This reads AWS_SECRET_ACCESS_KEY first and only falls back to SECRET_STR, so
+// the untangling can happen without a code change and without a single
+// deployment that logs everybody out:
+//
+//   1. Deploy this. Nothing changes — the fallback preserves today's behaviour.
+//   2. Add AWS_SECRET_ACCESS_KEY=<current AWS key> to .env and restart. S3 now
+//      has its own variable; still no user impact.
+//   3. Rotate the AWS key in IAM and update AWS_SECRET_ACCESS_KEY. No JWT impact.
+//   4. Separately, whenever a logout-everyone window is acceptable, replace
+//      SECRET_STR with a fresh JWT-only secret and delete the duplicate line.
+//
+// Step 4 is the only one with user-visible impact, and it is now independent
+// of the AWS rotation rather than forced to happen at the same moment.
+const awsSecret = process.env.AWS_SECRET_ACCESS_KEY || process.env.SECRET_STR;
+
+if (!process.env.AWS_SECRET_ACCESS_KEY) {
+  console.warn(
+    '[s3] AWS_SECRET_ACCESS_KEY is not set; falling back to SECRET_STR. ' +
+    'Set AWS_SECRET_ACCESS_KEY so the AWS key and the JWT secret can be rotated independently.'
+  );
+}
+
 const s3 = new S3({
   accessKeyId: process.env.AWS_ACCESS_KEY,
-  secretAccessKey: process.env.SECRET_STR,
+  secretAccessKey: awsSecret,
   region: process.env.AWS_REGION,
 });
 
