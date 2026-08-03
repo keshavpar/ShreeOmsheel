@@ -1,6 +1,5 @@
 const { sendOtpViaFast2SMS } = require('../utils/fast2sms');
-
-const otpStore = new Map(); // Use Redis in production
+const otpStore = require('../utils/otpStore');
 
 // POST /send-otp
 exports.sendOtp = async (req, res) => {
@@ -15,7 +14,10 @@ exports.sendOtp = async (req, res) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000);
     otpStore.set(phone, otp);
-    console.log(`[sendOtp] Generated OTP: ${otp} for phone: ${phone}`);
+    // The OTP itself is deliberately not logged. It was previously written in
+    // plaintext to both the console and logs/app.log, which meant anyone with
+    // log access could complete a verification without the handset.
+    console.log(`[sendOtp] OTP generated for phone: ${phone}`);
 
     await sendOtpViaFast2SMS(phone, otp);
     console.log(`[sendOtp] OTP sent successfully to ${phone}`);
@@ -39,22 +41,31 @@ exports.verifyOtp = (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Phone and OTP are required' });
     }
 
-    if (!otpStore.has(phone)) {
+    // Neither the stored nor the submitted OTP is logged — see sendOtp.
+    const result = otpStore.verify(phone, otp);
+
+    if (result.ok) {
+      console.log(`[verifyOtp] OTP verified successfully for ${phone}`);
+      return res.status(200).json({ status: 'success', message: 'OTP verified successfully' });
+    }
+
+    if (result.reason === 'too_many_attempts') {
+      console.warn(`[verifyOtp] Attempt limit reached for phone: ${phone}`);
+      return res.status(429).json({
+        status: 'error',
+        message: 'Too many incorrect attempts. Please request a new OTP.',
+      });
+    }
+
+    // 'not_found' and 'expired' intentionally share the response of the
+    // original code path, which did not distinguish them either.
+    if (result.reason === 'not_found' || result.reason === 'expired') {
       console.warn(`[verifyOtp] OTP not found or expired for phone: ${phone}`);
       return res.status(400).json({ status: 'error', message: 'OTP expired or not found' });
     }
 
-    const storedOtp = otpStore.get(phone);
-    console.log(`[verifyOtp] Stored OTP: ${storedOtp}, Received OTP: ${otp}`);
-
-    if (parseInt(otp) === storedOtp) {
-      otpStore.delete(phone);
-      console.log(`[verifyOtp] OTP verified successfully for ${phone}`);
-      return res.status(200).json({ status: 'success', message: 'OTP verified successfully' });
-    } else {
-      console.warn(`[verifyOtp] Incorrect OTP for phone: ${phone}`);
-      return res.status(400).json({ status: 'error', message: 'Incorrect OTP' });
-    }
+    console.warn(`[verifyOtp] Incorrect OTP for phone: ${phone}`);
+    return res.status(400).json({ status: 'error', message: 'Incorrect OTP' });
 
   } catch (err) {
     console.error(`[verifyOtp] Error verifying OTP for ${req.body.phone}:`, err.message);
