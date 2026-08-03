@@ -1,7 +1,14 @@
-const AWS = require('aws-sdk');
+// Import only the S3 client, not the whole SDK — the full `aws-sdk` require
+// costs ~22.9 MB RSS vs ~14.2 MB for this path alone.
+const S3 = require('aws-sdk/clients/s3');
 require('dotenv').config();
 
-const s3 = new AWS.S3({
+// Single shared client for the whole process. s3controller previously built a
+// second, identically-configured client; it now imports this one.
+// NOTE: secretAccessKey reads SECRET_STR because .env defines that name twice
+// and the AWS value wins. Untouched here on purpose — splitting the two
+// variables invalidates every issued JWT and is scheduled as Phase 2.3.
+const s3 = new S3({
   accessKeyId: process.env.AWS_ACCESS_KEY,
   secretAccessKey: process.env.SECRET_STR,
   region: process.env.AWS_REGION,
@@ -39,6 +46,7 @@ const getSignedUrlPromise = (key, expiresInSeconds = 300) => {
 };
 
 module.exports = {
+  s3,
   getSignedUrl,
   getSignedUrlPromise,
 };

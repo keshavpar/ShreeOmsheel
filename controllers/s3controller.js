@@ -1,11 +1,6 @@
-const AWS = require('aws-sdk');
-require('dotenv').config();
-
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY,
-  secretAccessKey: process.env.SECRET_STR,
-  region: process.env.AWS_REGION
-});
+// Reuses the single shared S3 client from utils/s3Utils rather than building a
+// second, identically-configured one and pulling in the full aws-sdk again.
+const { s3 } = require('../utils/s3Utils');
 
 exports.getSignedUrlForAadhaar = async (req, res) => {
   const { fileName, fileType } = req.body;
