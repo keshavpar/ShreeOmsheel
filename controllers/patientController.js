@@ -322,18 +322,20 @@ exports.addObservation = asyncErrorHandler(async (req, res, next) => {
 
   patient.observations.push(newObservation);
 
-  // 💾 Save
-  await safeSave(patient);
-
-  // ── Recompute and persist capsule totals ──────────────────────────────────
+  // ── Recompute capsule totals, then persist once ───────────────────────────
   // calculateCapsules sums capgiven across all observations + medicalExams.
   // todayCaps uses obs.time to determine if the entry is from today —
   // so only entries with time = today contribute to captoday.
+  //
+  // This runs BEFORE the save: Mongoose applies subdocument schema defaults
+  // (including `time`) at push time, not at save time, so the just-pushed
+  // observation is already complete in memory. A single write replaces the
+  // previous save-recompute-save pair, halving the write cost and removing
+  // the window where the document was persisted with stale totals.
   const capsuleStats = calculateCapsules(patient);
   patient.totalcap = capsuleStats.totalCaps;
   patient.captoday = capsuleStats.todayCaps;
 
-  // 💾 Persist updated totalcap + captoday back to the document
   await safeSave(patient);
 
   return res.status(200).json({
@@ -383,14 +385,14 @@ exports.editObservation = asyncErrorHandler(async (req, res, next) => {
     }
   });
 
-  // 💾 Save
-  await safeSave(patient);
-
-  // ── Recompute and persist capsule totals ──────────────────────────────────
-  // capgiven or soscap may have changed — recalculate from scratch
+  // ── Recompute capsule totals, then persist once ───────────────────────────
+  // capgiven or soscap may have changed — recalculate from scratch.
+  // Computed pre-save against the already-mutated in-memory document, so one
+  // write replaces the previous save-recompute-save pair.
   const editObsCaps = calculateCapsules(patient);
   patient.totalcap = editObsCaps.totalCaps;
   patient.captoday = editObsCaps.todayCaps;
+
   await safeSave(patient);
 
   return res.status(200).json({
@@ -422,14 +424,14 @@ exports.deleteObservation = asyncErrorHandler(async (req, res, next) => {
   // 🗑 Remove observation (Mongoose 7+ safe)
   patient.observations.pull({ _id: observationId });
 
-  // 💾 Save
-  await safeSave(patient);
-
-  // ── Recompute and persist capsule totals ──────────────────────────────────
-  // Removing an observation reduces totalcap — recalculate from scratch
+  // ── Recompute capsule totals, then persist once ───────────────────────────
+  // Removing an observation reduces totalcap — recalculate from scratch.
+  // The pull has already mutated the in-memory array, so this is accurate
+  // pre-save and one write replaces the previous pair.
   const delObsCaps = calculateCapsules(patient);
   patient.totalcap = delObsCaps.totalCaps;
   patient.captoday = delObsCaps.todayCaps;
+
   await safeSave(patient);
 
   return res.status(200).json({
@@ -459,21 +461,40 @@ exports.getTodayPatients = asyncErrorHandler(async (req, res) => {
   const nextDay = new Date(today);
   nextDay.setDate(today.getDate() + 1);
 
+  // Hard ceiling on an otherwise unbounded result set. 500 is far above a
+  // realistic day's intake, so in normal operation the response is byte-for-byte
+  // what it was before — `count` still equals the number of patients returned.
+  // ?limit= can lower it; the cap cannot be raised past 500 from the client.
+  //
+  // totalCount and truncated are additive: if a day ever did exceed the cap,
+  // the caller can detect it rather than silently rendering a short list.
+  const TODAY_MAX = 500;
+  const pageLimit = Math.min(
+    parseInt(req.query.limit, 10) || TODAY_MAX,
+    TODAY_MAX
+  );
+
+  const filter = { createdAt: { $gte: today, $lt: nextDay } };
+
   // Uses same projection as getAllPatients — excludes medicalExams and observations
   // which can be large. Full document is available via getPatientById.
-  const patients = await Patient.find({
-    createdAt: { $gte: today, $lt: nextDay }
-  })
-    .select(PATIENT_LIST_PROJECTION)
-    .lean();
+  const [patients, totalCount] = await Promise.all([
+    Patient.find(filter)
+      .select(PATIENT_LIST_PROJECTION)
+      .limit(pageLimit)
+      .lean(),
+    Patient.countDocuments(filter),
+  ]);
 
   const formatted = attachSignedUrls(patients);
 
   res.status(200).json({
     status: 'success',
     data: {
-      patients: formatted,
-      count: formatted.length,
+      patients:  formatted,
+      count:     formatted.length,
+      totalCount,
+      truncated: totalCount > formatted.length,
     },
   });
 });
@@ -574,13 +595,14 @@ exports.editMedicalExam = asyncErrorHandler(async (req, res, next) => {
     }
   });
 
-  await safeSave(patient);
-
-  // ── Recompute and persist capsule totals ──────────────────────────────────
-  // capgiven on the exam may have changed — recalculate from scratch
+  // ── Recompute capsule totals, then persist once ───────────────────────────
+  // capgiven on the exam may have changed — recalculate from scratch.
+  // Computed pre-save against the already-mutated document, so one write
+  // replaces the previous save-recompute-save pair.
   const editExamCaps = calculateCapsules(patient);
   patient.totalcap = editExamCaps.totalCaps;
   patient.captoday = editExamCaps.todayCaps;
+
   await safeSave(patient);
 
   return res.status(200).json({
@@ -609,13 +631,14 @@ exports.deleteMedicalExam = asyncErrorHandler(async (req, res, next) => {
   // 🗑 Remove exam (Mongoose 7+ safe)
   patient.medicalExams.pull({ _id: examId });
 
-  await safeSave(patient);
-
-  // ── Recompute and persist capsule totals ──────────────────────────────────
-  // Removing an exam reduces totalcap — recalculate from scratch
+  // ── Recompute capsule totals, then persist once ───────────────────────────
+  // Removing an exam reduces totalcap — recalculate from scratch.
+  // The pull has already mutated the in-memory array, so this is accurate
+  // pre-save and one write replaces the previous pair.
   const delExamCaps = calculateCapsules(patient);
   patient.totalcap = delExamCaps.totalCaps;
   patient.captoday = delExamCaps.todayCaps;
+
   await safeSave(patient);
 
   return res.status(200).json({
@@ -690,15 +713,21 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
 
   patient.medicalExams.push(newExam);
 
-  // 💾 Save exam first so the new exam gets its _id assigned by Mongoose
-  await safeSave(patient);
-
-  // ── Compute and persist tapering state ────────────────────────────────────
-  // calculateCapsules reads the full medicalExams array (including the one
-  // just pushed) and derives dosage + expectedDate from the active tapering.
+  // ── Compute tapering state, then persist once ─────────────────────────────
+  // The previous first save existed to get the new exam's _id, but Mongoose
+  // assigns subdocument _ids at push time rather than at save time — so it is
+  // already available here and that save was redundant. Schema defaults (e.g.
+  // `time`) are likewise applied on push, so the in-memory document is
+  // complete and calculateCapsules reads accurate values.
+  //
+  // Collapsing to one write also closes a real gap: previously the exam was
+  // persisted by the first save while dosage, expectedDate and taperingStatus
+  // were only written by the second. A crash or connection loss between them
+  // left an exam stored with no matching tapering state — for a document that
+  // drives patient dosing, a partially-written state is worse than a slow one.
   const capsuleStats = calculateCapsules(patient);
 
-  // Locate the saved exam — it's the last one after push
+  // The exam just pushed — its _id was assigned by Mongoose on push
   const savedExam = patient.medicalExams[patient.medicalExams.length - 1];
 
   // Build taperingStatus only if this exam has a valid tapering schedule
@@ -718,7 +747,7 @@ exports.addMedicalExam = asyncErrorHandler(async (req, res, next) => {
     };
   }
 
-  // 💾 Persist computed fields — single additional save
+  // 💾 Single write: the new exam and its derived tapering state together
   await safeSave(patient);
 
   // All capsule/taper data is now persisted on the patient document.
@@ -762,8 +791,26 @@ exports.toggleBlacklist = asyncErrorHandler(async (req, res, next) => {
 });
 
 // GET /patientlist-pdf
+//
+// Two problems fixed here.
+//
+// 1. `$push: '$$ROOT'` pushed entire patient documents — medicalExams[] and
+//    observations[] included — into each group. Every group is a single BSON
+//    document subject to the 16 MB limit, so with heavy exam histories this
+//    was on a path to failing outright as the clinic grew. The $project stage
+//    now keeps only the fields the PDF list needs, using the same projection
+//    as the list endpoints, which drops the per-patient payload by orders of
+//    magnitude and pushes the ceiling far out.
+//
+// 2. `.toObject()` was called on aggregation output. Aggregation returns plain
+//    objects, not hydrated documents, so this threw TypeError on the first
+//    patient — meaning this endpoint returned 500 for any non-empty database
+//    and cannot have been working. Removed.
+//
+// allowDiskUse guards the pipeline's 100 MB in-memory limit on large datasets.
 exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
   const grouped = await Patient.aggregate([
+    { $project: PATIENT_LIST_PROJECTION },
     {
       $group: {
         _id: {
@@ -774,10 +821,10 @@ exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
         count: { $sum: 1 },
       },
     },
-  ]);
+  ]).allowDiskUse(true);
 
   grouped.forEach(g => {
-    g.patients = attachSignedUrls(g.patients.map(p => p.toObject()));
+    g.patients = attachSignedUrls(g.patients);
   });
 
   res.status(200).json({
