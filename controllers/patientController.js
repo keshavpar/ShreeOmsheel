@@ -792,40 +792,48 @@ exports.toggleBlacklist = asyncErrorHandler(async (req, res, next) => {
 
 // GET /patientlist-pdf
 //
-// Two problems fixed here.
+// Groups patients by normalised city/state. Deliberately does NOT use
+// $group/$push.
 //
-// 1. `$push: '$$ROOT'` pushed entire patient documents — medicalExams[] and
-//    observations[] included — into each group. Every group is a single BSON
-//    document subject to the 16 MB limit, so with heavy exam histories this
-//    was on a path to failing outright as the clinic grew. The $project stage
-//    now keeps only the fields the PDF list needs, using the same projection
-//    as the list endpoints, which drops the per-patient payload by orders of
-//    magnitude and pushes the ceiling far out.
+// The original used `$push: '$$ROOT'` on unprojected documents. Adding a
+// $project in front shrank the payload ~99% but still failed against real
+// data: normalising the key with $toLower/$trim merges city spelling variants
+// (553 raw groups collapse to 339), which makes the largest group — sirsa /
+// haryana, over 1300 patients — big enough to blow the $group accumulator's
+// memory limit. allowDiskUse cannot rescue it either: this Atlas cluster tier
+// silently refuses it, failing identically with and without the flag.
 //
-// 2. `.toObject()` was called on aggregation output. Aggregation returns plain
-//    objects, not hydrated documents, so this threw TypeError on the first
-//    patient — meaning this endpoint returned 500 for any non-empty database
-//    and cannot have been working. Removed.
+// Grouping in Node removes the accumulator altogether. The projected working
+// set is ~3.2 MB across 4.3k patients, so this is comfortably cheaper than the
+// server-side accumulation it replaces, and it cannot hit a $group limit no
+// matter how lopsided the city distribution becomes.
 //
-// allowDiskUse guards the pipeline's 100 MB in-memory limit on large datasets.
+// (The previous implementation also called .toObject() on aggregation output,
+// which returns plain objects — that threw TypeError, so this endpoint
+// returned 500 for any non-empty database and cannot ever have worked.)
 exports.getGroupedPatients = asyncErrorHandler(async (req, res) => {
-  const grouped = await Patient.aggregate([
-    { $project: PATIENT_LIST_PROJECTION },
-    {
-      $group: {
-        _id: {
-          city: { $toLower: { $trim: { input: '$city' } } },
-          state: { $toLower: { $trim: { input: '$state' } } },
-        },
-        patients: { $push: '$$ROOT' },
-        count: { $sum: 1 },
-      },
-    },
-  ]).allowDiskUse(true);
+  const patients = await Patient.find({})
+    .select(PATIENT_LIST_PROJECTION)
+    .lean();
 
-  grouped.forEach(g => {
-    g.patients = attachSignedUrls(g.patients);
-  });
+  const groups = new Map();
+
+  for (const p of patients) {
+    const city  = (p.city  || '').trim().toLowerCase();
+    const state = (p.state || '').trim().toLowerCase();
+    const key   = city + '\u0000' + state;
+
+    let g = groups.get(key);
+    if (!g) {
+      g = { _id: { city, state }, patients: [], count: 0 };
+      groups.set(key, g);
+    }
+    g.patients.push(p);
+    g.count += 1;
+  }
+
+  const grouped = [...groups.values()];
+  grouped.forEach(g => { g.patients = attachSignedUrls(g.patients); });
 
   res.status(200).json({
     status: 'Success',
