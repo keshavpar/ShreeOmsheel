@@ -1,5 +1,6 @@
 const mongoose =require('mongoose')
 const schema =mongoose.Schema
+mongoose.set('strictQuery', false);
 
 const bill = new schema({
     billnopiumated: {

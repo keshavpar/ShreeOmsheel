@@ -1,0 +1,437 @@
+openapi: 3.0.0
+info:
+  title: ShreeOmsheel Patient API
+  version: 1.0.0
+  description: API documentation for managing patient records, reports, and medical exams.
+servers:
+  - url: http://localhost:8001/ShreeOmsheel/patient
+    description: Local development server
+
+paths:
+  /patientlist:
+    get:
+      summary: Get all patients with optional filters
+      tags:
+        - Patients
+      parameters:
+        - in: query
+          name: city
+          schema:
+            type: string
+        - in: query
+          name: doctor
+          schema:
+            type: string
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A list of patients with signed URLs for documents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientListResponse'
+
+  /countpatients:
+    get:
+      summary: Get total count of patients
+      tags:
+        - Patients
+      responses:
+        '200':
+          description: Total number of patients
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      Count:
+                        type: integer
+
+  /todaypatients:
+    get:
+      summary: Get list of today's patients
+      tags:
+        - Patients
+      responses:
+        '200':
+          description: List of today's patients with signed URLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientListResponse'
+
+  /signed-report-urls/{patientId}:
+    get:
+      summary: Get signed S3 URLs for patient reports
+      tags:
+        - Patients
+      parameters:
+        - in: path
+          name: patientId
+          required: true
+          schema:
+            type: string
+          description: ID of the patient
+      responses:
+        '200':
+          description: Signed URLs returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        signedUrl:
+                          type: string
+
+  /correct-city-state:
+    patch:
+      summary: Correct city and state typos
+      tags:
+        - Patients
+      responses:
+        '200':
+          description: City and state names corrected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+
+  /patientlist-pdf:
+    get:
+      summary: Generate PDF-style structured patient list grouped by city/state
+      tags:
+        - Patients
+      responses:
+        '200':
+          description: Grouped patient list with signed URLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupedPatientListResponse'
+
+  /image-url/{patientId}:
+    get:
+      summary: Get signed URL for patient image
+      tags:
+        - Patients
+      parameters:
+        - in: path
+          name: patientId
+          required: true
+          schema:
+            type: string
+          description: ID of the patient
+      responses:
+        '200':
+          description: Signed image URL returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      signedImageUrl:
+                        type: string
+        '404':
+          description: Patient or image not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+
+  /addpatient:
+    post:
+      summary: Add a new patient record
+      tags:
+        - Patients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+      responses:
+        '201':
+          description: Patient added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      addpatient:
+                        $ref: '#/components/schemas/Patient'
+
+  /edit-patient/{id}:
+    patch:
+      summary: Edit patient details
+      tags:
+        - Patients
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID of the patient to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+      responses:
+        '200':
+          description: Patient updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      updatedPatient:
+                        $ref: '#/components/schemas/Patient'
+
+  /add-medical-exam/{id}:
+    post:
+      summary: Add a new medical exam to a patient
+      tags:
+        - Patients
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID of the patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - examName
+                - result
+                - date
+              properties:
+                examName:
+                  type: string
+                result:
+                  type: string
+                date:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          description: Medical exam added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      updatedMedicalExams:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MedicalExam'
+
+  /delpatient/{id}:
+    delete:
+      summary: Delete a patient by ID
+      tags:
+        - Patients
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the patient
+      responses:
+        '204':
+          description: Patient deleted successfully (no content)
+        '404':
+          description: Patient not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+
+components:
+  schemas:
+    Patient:
+      type: object
+      required:
+        - name
+        - phonenumber
+        - aadharnumber
+        - city
+        - state
+        - Date
+      properties:
+        name:
+          type: string
+        fathersname:
+          type: string
+        phonenumber:
+          type: string
+        aadharnumber:
+          type: string
+        Date:
+          type: string
+          format: date-time
+        address:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        pincode:
+          type: string
+        createdBy:
+          type: string
+        lastModifiedBy:
+          type: string
+        affidavitDocumentUrl:
+          type: string
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/Report'
+        medicinelist:
+          type: array
+          items:
+            $ref: '#/components/schemas/Medicine'
+        medicalExams:
+          type: array
+          items:
+            $ref: '#/components/schemas/MedicalExam'
+
+    Report:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+
+    Medicine:
+      type: object
+      properties:
+        medicineName:
+          type: string
+        dosage:
+          type: string
+        duration:
+          type: string
+
+    MedicalExam:
+      type: object
+      properties:
+        examName:
+          type: string
+        result:
+          type: string
+        date:
+          type: string
+          format: date
+
+    PatientListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        data:
+          type: object
+          properties:
+            patients:
+              type: array
+              items:
+                $ref: '#/components/schemas/Patient'
+
+    GroupedPatientListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        Count:
+          type: integer
+        data:
+          type: object
+          properties:
+            patients:
+              type: array
+              items:
+                type: object
+                properties:
+                  _id:
+                    type: object
+                    properties:
+                      city:
+                        type: string
+                      state:
+                        type: string
+                  patients:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Patient'
+                  count:
+                    type: integer

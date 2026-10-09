@@ -1,21 +1,51 @@
+const http = require('http');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
-dotenv.config({path: './.env'});
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
 
+dotenv.config({ path: './.env' });
+
+const swaggerDocument = YAML.load('./docs/swagger.yaml');
 const app = require('./app');
 
-mongoose.connect(process.env.DB_connection_String, {
-    UseNewUrlParser: true
-}).then((conn) => {
-    console.log("DB Connection Successful... :)");
-}).catch((error) => {
-    console.log(error.message);
-})
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-console.log(process.NODE_ENV)
-const port = process.env.PORT;
-const dport=process.env.DEVELOPMENTPORT
+const env = process.env.NODE_ENV || 'development';
 
-app.listen(dport,()=>{
-    console.log(`Server is running on ${dport}... :) `);
-})
+let dbConnectionString;
+let port;
+
+switch (env) {
+  case 'development':
+    dbConnectionString = process.env.DB_connection_String;
+    port = process.env.DEVELOPMENTPORT || 8005;
+    break;
+
+  case 'testing':
+    dbConnectionString = process.env.TEST_DB_CONNECTION;
+    port = process.env.TEST_PORT || 8001;
+    break;
+
+  case 'production':
+    dbConnectionString = process.env.PROD_DB_CONNECTION;
+    port = process.env.PORT || 8080;
+    break;
+
+  default:
+    console.error('❌ Unknown NODE_ENV:', env);
+    process.exit(1);
+}
+
+mongoose
+  .connect(dbConnectionString)
+  .then(() => console.log('✅ DB Connection Successful'))
+  .catch(err => {
+    console.error('❌ DB Connection Error:', err.message);
+    process.exit(1);
+  });
+
+http.createServer(app).listen(port, '0.0.0.0', () => {
+  console.log(`🚀 HTTP Server running on port ${port}`);
+  console.log(`🌍 Environment: ${env}`);
+});
