@@ -30,8 +30,8 @@ const otpController = require('../controllers/otp_controller');
 // ipKeyGenerator normalises IPv6 to a /56 subnet so a single client cannot
 // sidestep the limit by rotating addresses within its own prefix.
 const phoneKey = (req) => {
-  const phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : '';
-  return phone || ipKeyGenerator(req.ip);
+  const phone = otpController.phoneFrom(req);
+  return (typeof phone === 'string' && phone) || ipKeyGenerator(req.ip);
 };
 
 const tooMany = (message) => (req, res) =>
@@ -81,6 +81,9 @@ const verifyLimiter = rateLimit({
   handler: tooMany('Too many verification attempts. Please try again later.'),
 });
 
+// Mounted at both /ShreeOmsheel/otp and /ShreeOmsheel/patient (see
+// patientRoute). Both mounts share these limiter instances, so a number's
+// cooldown and daily cap apply across either path.
 router.post('/send-otp', otpCooldown, otpDailyCap, otpIpBurst, otpController.sendOtp);
 router.post('/verify-otp', verifyLimiter, otpController.verifyOtp);
 

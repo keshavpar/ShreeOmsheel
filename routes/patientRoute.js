@@ -1,5 +1,6 @@
 const express = require('express');
 const patientController = require('./../controllers/patientController');
+const otpRoutes = require('./otp_routes');
 
 const router = express.Router();
 
@@ -8,6 +9,10 @@ router.get('/patientlist',          patientController.getAllPatients);
 router.post('/add-patient',         patientController.createPatient);
 router.patch('/edit-patient/:id',   patientController.updatePatient);
 router.delete('/delpatient/:id',    patientController.deletePatient);
+
+// ─── Phone OTP (Add Patient form) ──────────────────────────────────────────────
+// POST /send-otp and /verify-otp, with the same rate limits as /ShreeOmsheel/otp.
+router.use(otpRoutes);
 
 // ─── Patient stats ─────────────────────────────────────────────────────────────
 router.get('/countpatients',        patientController.getPatientCount);

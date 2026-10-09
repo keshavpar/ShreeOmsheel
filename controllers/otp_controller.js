@@ -1,10 +1,18 @@
 const { sendOtpViaFast2SMS } = require('../utils/fast2sms');
 const otpStore = require('../utils/otpStore');
 
+// The patient app sends `phonenumber`; the original /otp callers send `phone`.
+// Accept either so both mount points share one handler and one rate-limit key.
+const phoneFrom = (req) => {
+  const raw = req.body?.phonenumber ?? req.body?.phone;
+  return typeof raw === 'string' ? raw.trim() : raw;
+};
+exports.phoneFrom = phoneFrom;
+
 // POST /send-otp
 exports.sendOtp = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const phone = phoneFrom(req);
     console.log(`[sendOtp] Received request for phone: ${phone}`);
 
     if (!phone || phone.length !== 10 || !/^[6-9]\d{9}$/.test(phone)) {
@@ -25,7 +33,7 @@ exports.sendOtp = async (req, res) => {
     return res.status(200).json({ status: 'success', message: 'OTP sent successfully' });
 
   } catch (err) {
-    console.error(`[sendOtp] Error sending OTP to ${req.body.phone}:`, err.message);
+    console.error(`[sendOtp] Error sending OTP to ${phoneFrom(req)}:`, err.message);
     return res.status(500).json({ status: 'error', message: 'Failed to send OTP. Try again.' });
   }
 };
@@ -33,7 +41,8 @@ exports.sendOtp = async (req, res) => {
 // POST /verify-otp
 exports.verifyOtp = (req, res) => {
   try {
-    const { phone, otp } = req.body;
+    const phone = phoneFrom(req);
+    const { otp } = req.body;
     console.log(`[verifyOtp] Verifying OTP for phone: ${phone}`);
 
     if (!phone || !otp) {
@@ -68,7 +77,7 @@ exports.verifyOtp = (req, res) => {
     return res.status(400).json({ status: 'error', message: 'Incorrect OTP' });
 
   } catch (err) {
-    console.error(`[verifyOtp] Error verifying OTP for ${req.body.phone}:`, err.message);
+    console.error(`[verifyOtp] Error verifying OTP for ${phoneFrom(req)}:`, err.message);
     return res.status(500).json({ status: 'error', message: 'Failed to verify OTP' });
   }
 };
