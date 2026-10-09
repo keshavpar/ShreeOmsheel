@@ -20,6 +20,13 @@ const { swaggerUi, swaggerSpec } = require('./swagger');
 
 const app = express();
 
+// Production sits behind nginx on the same host. Trust exactly that one hop so
+// req.ip is the real client (the address nginx appends to X-Forwarded-For),
+// not nginx itself. Without this the IP-keyed rate limit in routes/otp_routes
+// buckets every client together, and express-rate-limit logs
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on each limiter.
+app.set('trust proxy', 1);
+
 // gzip responses. Patient list payloads are repetitive JSON and compress ~75%.
 // Registered first so it covers every route below, including /api-docs.
 // Clients that don't send Accept-Encoding are served uncompressed as before.

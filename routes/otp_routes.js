@@ -10,15 +10,13 @@ const otpController = require('../controllers/otp_controller');
  * uncapped spend channel: unauthenticated, unlimited, and trivial to loop.
  *
  * The primary controls are keyed on the PHONE NUMBER, not the IP, and that is
- * deliberate. `trust proxy` is not configured on this app, so if it sits
- * behind nginx / an ALB then req.ip is the proxy's address and is identical
- * for every real client — an IP-keyed limit would then throttle the whole
- * clinic as a single bucket. Phone-keyed limits are unaffected by that, and
- * they map directly onto the thing being spent: one SMS per number.
+ * deliberate: they map directly onto the thing being spent, one SMS per
+ * number, and they stay correct even if the proxy setup changes. req.ip is
+ * the real client only because app.js sets `trust proxy` for the nginx hop.
  *
  * The IP limit is kept as a deliberately generous backstop against someone
- * cycling through many numbers. It is loose enough not to break a
- * proxy-collapsed deployment.
+ * cycling through many numbers. Clinic staff share one public IP, so it is
+ * loose enough not to throttle a busy front desk.
  *
  * skipFailedRequests means a rejected request (invalid number, Fast2SMS
  * error) does not consume the caller's quota — only requests that actually
@@ -60,7 +58,7 @@ const otpDailyCap = rateLimit({
 });
 
 // 3. Backstop — catches one source cycling through many numbers.
-//    Generous on purpose: see the note about `trust proxy` above.
+//    Generous on purpose: see the note about shared clinic IPs above.
 const otpIpBurst = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
